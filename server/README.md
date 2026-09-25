@@ -1,4 +1,4 @@
-# CRE Screener — open-source model gateway
+# NoteSolo — open-source model gateway
 
 All AI runs on models you host: **Unlimited-OCR** (documents → markdown) + **Qwen3-32B-AWQ**
 (markdown → structured JSON via vLLM guided decoding, drafting, portfolio Q&A). No per-token
@@ -9,7 +9,7 @@ API costs — your only bill is the GPU while it's powered on.
 ```bash
 git clone https://github.com/wilsoz1/crescreener && cd crescreener/server
 export SUPABASE_SERVICE_ROLE_KEY=...        # Supabase dashboard → settings → API
-export CADDY_DOMAIN=api.crescreener.com     # add an A record for this → the box IP
+export CADDY_DOMAIN=api.notesolo.com     # add an A record for this → the box IP
 docker compose up -d --build
 ```
 
@@ -19,7 +19,7 @@ unavailable and everything else is unaffected.
 
 ## Point the site at it
 
-Open `https://crescreener.com/?api=https://api.crescreener.com` once per browser.
+Open `https://notesolo.com/?api=https://api.notesolo.com` once per browser.
 
 ## Endpoints
 

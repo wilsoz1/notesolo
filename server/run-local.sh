@@ -1,15 +1,15 @@
 #!/bin/zsh
-# Run the CRE Screener gateway against local Ollama (Apple Silicon dev setup).
+# Run the NoteSolo gateway against local Ollama (Apple Silicon dev setup).
 # Prereqs: Ollama running; models built via:
-#   ollama create crescreener-llm  (FROM qwen3:8b,     num_ctx 16384)
-#   ollama create crescreener-ocr  (FROM qwen2.5vl:7b, num_ctx 32768)
+#   ollama create notesolo-llm  (FROM qwen3:8b,     num_ctx 16384)
+#   ollama create notesolo-ocr  (FROM qwen2.5vl:7b, num_ctx 32768)
 # Service key in .env.key (gitignored). Connect a browser once via
-# https://crescreener.com/?api=http://localhost:8787 (Chrome).
+# https://notesolo.com/?api=http://localhost:8787 (Chrome).
 cd "$(dirname "$0")"
 export OCR_BASE_URL=http://localhost:11434/v1
 export LLM_BASE_URL=http://localhost:11434/v1
-export LLM_MODEL=crescreener-llm
-export OCR_MODEL=crescreener-ocr
+export LLM_MODEL=notesolo-llm
+export OCR_MODEL=notesolo-ocr
 export OCR_BATCH_PAGES=1
 # Per-page transcription; collapsing leader dots stops small VLMs from
 # hitting Ollama's token-repeat abort on forms with dotted leader lines.

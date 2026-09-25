@@ -4,9 +4,9 @@ import { supabase, SPREAD_DOC_TYPES } from './supabase'
 
 // Extraction API base URL: ?api=https://host → persisted to localStorage → VITE_API_URL → none (demo mode).
 const fromQuery = new URLSearchParams(window.location.search).get('api')
-if (fromQuery) localStorage.setItem('crescreener.api', fromQuery.replace(/\/$/, ''))
+if (fromQuery) localStorage.setItem('notesolo.api', fromQuery.replace(/\/$/, ''))
 export const API_URL: string | null =
-  localStorage.getItem('crescreener.api') || (import.meta.env.VITE_API_URL as string | undefined) || null
+  localStorage.getItem('notesolo.api') || (import.meta.env.VITE_API_URL as string | undefined) || null
 
 export const STEPS = ['Rendering pages', 'OCR — Unlimited-OCR', 'Extracting deal fields', 'Underwriting']
 

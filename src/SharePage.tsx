@@ -68,7 +68,7 @@ export default function SharePage({ token }: { token: string }) {
           </tbody>
         </table>
       </div>
-      <p className="small" style={{ marginTop: 14 }}>Provided via CRE Screener. Access to this room is logged for the lender.</p>
+      <p className="small" style={{ marginTop: 14 }}>Provided via NoteSolo. Access to this room is logged for the lender.</p>
     </div>
   )
 }

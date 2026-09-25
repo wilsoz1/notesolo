@@ -57,7 +57,7 @@ export default function App() {
     return (
       <div className="pub">
         <header className="topbar">
-          <a className="brand" href="#/" aria-label="CRE Screener home" style={{ color: 'inherit' }}><Ico.logo /></a>
+          <a className="brand" href="#/" aria-label="NoteSolo home" style={{ color: 'inherit' }}><Ico.logo /></a>
           <nav className="navlinks">
             <a href="#/screener" className={section === 'screener' ? 'on' : ''}>Try the screener</a>
           </nav>
@@ -95,7 +95,7 @@ export default function App() {
   return (
     <div className="shell">
       <nav className="side" aria-label="Main">
-        <a className="side-logo" href="#/app"><Ico.logo /> <span>CRE Screener</span></a>
+        <a className="side-logo" href="#/app"><Ico.logo /> <span>NoteSolo</span></a>
         {NAV.map(n => {
           const I = n.icon
           return <a key={n.href} href={n.href} className={activeKey === n.key ? 'on' : ''}><I /> {n.label}</a>

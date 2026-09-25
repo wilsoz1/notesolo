@@ -80,7 +80,7 @@ export default function Screener({ org }: { org: Org | null }) {
 
   return (
     <>
-      <div className="dbtag"><Ico.doc /> CRE Screener · {API_URL ? `API: ${API_URL}` : 'Demo mode — no extraction API configured'}</div>
+      <div className="dbtag"><Ico.doc /> NoteSolo · {API_URL ? `API: ${API_URL}` : 'Demo mode — no extraction API configured'}</div>
       <h1>Screen a lending package</h1>
       <p className="subtitle">
         Drop everything the borrower sent — tax returns (business and personal), financial statements, PFS,

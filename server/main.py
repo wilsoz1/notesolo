@@ -1,4 +1,4 @@
-"""CRE Screener model gateway — open-source models only.
+"""NoteSolo model gateway — open-source models only.
 
 One FastAPI service in front of two vLLM servers:
   OCR_BASE_URL  -> Unlimited-OCR   (documents -> markdown)
@@ -56,7 +56,7 @@ ORIGINS = os.environ.get(
     "https://notesolo.com,https://www.notesolo.com,https://crescreener.com,https://www.crescreener.com,http://localhost:5199",
 ).split(",")
 
-app = FastAPI(title="CRE Screener model gateway")
+app = FastAPI(title="NoteSolo model gateway")
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 SPREAD_LINES = ["revenue", "cogs", "opex", "ebitda", "depreciation", "interest_expense",
@@ -154,7 +154,7 @@ def ocr(data: bytes, filename: str, first_page_only: bool = False) -> str:
     out = "\n".join(chunks)
     if DEBUG_DIR:
         try:
-            with open(os.path.join(DEBUG_DIR, "crescreener-last-ocr.md"), "w") as fh:
+            with open(os.path.join(DEBUG_DIR, "notesolo-last-ocr.md"), "w") as fh:
                 fh.write(f"<!-- {filename} · {len(pages)} page(s) · dpi {OCR_DPI} -->\n{out}")
         except OSError:
             pass
@@ -649,7 +649,7 @@ async def extract_om(file: UploadFile = File(...)):
               "fields": fields}
     if DEBUG_DIR:
         try:
-            with open(os.path.join(DEBUG_DIR, "crescreener-last-extract.json"), "w") as fh:
+            with open(os.path.join(DEBUG_DIR, "notesolo-last-extract.json"), "w") as fh:
                 json.dump(result, fh, indent=1)
         except OSError:
             pass

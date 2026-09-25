@@ -20,7 +20,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
   return (
     <div className="mk">
       <nav className="mk-nav">
-        <a className="mk-logo" href="#/"><Ico.logo /> CRE Screener</a>
+        <a className="mk-logo" href="#/"><Ico.logo /> NoteSolo</a>
         <div className="mk-nav-links">
           <a href="#mk-monitoring">Monitoring</a>
           <a href="#mk-features">Features</a>
@@ -282,7 +282,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
         </section>
 
         <footer className="mk-foot">
-          <span className="mk-logo" style={{ fontSize: 15 }}><Ico.logo /> CRE Screener</span>
+          <span className="mk-logo" style={{ fontSize: 15 }}><Ico.logo /> NoteSolo</span>
           <span>Early-access preview · demo portfolio data is fictional · not credit advice</span>
         </footer>
       </div>
