@@ -52,7 +52,8 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ngmpmyuwacwbwtqtinos.supa
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 MOCK = os.environ.get("MOCK") == "1"
 ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS", "https://crescreener.com,https://www.crescreener.com,http://localhost:5199"
+    "ALLOWED_ORIGINS",
+    "https://notesolo.com,https://www.notesolo.com,https://crescreener.com,https://www.crescreener.com,http://localhost:5199",
 ).split(",")
 
 app = FastAPI(title="CRE Screener model gateway")
