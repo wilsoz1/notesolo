@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import Marketing from './Marketing'
 import Screener from './Screener'
-import Today from './Today'
+import Dashboard from './Dashboard'
 import Loans from './Loans'
 import LoanPage from './LoanPage'
 import Search from './Search'
@@ -23,7 +23,7 @@ const useHash = () => {
 }
 
 const NAV = [
-  { href: '#/app', key: '', icon: Ico.status, label: 'Today' },
+  { href: '#/app', key: '', icon: Ico.status, label: 'Dashboard' },
   { href: '#/app/portfolio', key: 'portfolio', icon: Ico.doc, label: 'Portfolio' },
   { href: '#/app/screener', key: 'screener', icon: Ico.search, label: 'Screener' },
 ]
@@ -90,7 +90,7 @@ export default function App() {
     : sub === 'loans' && subId ? <LoanPage org={app.org} loanId={subId} initialTab={sub2} />
     : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' ? <Loans org={app.org} />
     : sub === 'screener' ? <Screener org={app.org} />
-    : <Today org={app.org} />
+    : <Dashboard org={app.org} />
 
   return (
     <div className="shell">
