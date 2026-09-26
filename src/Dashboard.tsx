@@ -72,6 +72,7 @@ export default function Dashboard({ org }: { org: Org }) {
   const [upcoming, setUpcoming] = useState<Upcoming[]>([])
   const [deposits, setDeposits] = useState<{ balance: number; opened: string | null }[]>([])
   const [dscrs, setDscrs] = useState<{ company: string; dscr: number; loanId: string }[]>([])
+  const [annuals, setAnnuals] = useState<{ id: string; due: string; status: string; loan_id: string; loan_number: string; responsible: string }[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -135,6 +136,11 @@ export default function Dashboard({ org }: { org: Org }) {
       }
       setDscrs(dscrList)
       setDeposits((dep.data as { balance: number; opened: string | null }[]) ?? [])
+      // Annual reviews are ticklers — one per loan under review, whatever their status.
+      setAnnuals(ticks
+        .filter(t => /annual review/i.test(t.requirement))
+        .map(t => ({ id: t.id, due: t.due_date, status: t.status, loan_id: t.loan_id, loan_number: t.loans?.loan_number ?? '', responsible: t.responsible }))
+        .sort((a, b) => (a.due < b.due ? -1 : 1)))
       out.sort((a, b) => a.sev - b.sev)
       setItems(out)
 
@@ -369,7 +375,8 @@ export default function Dashboard({ org }: { org: Org }) {
 
       {items === null ? <div style={{ marginTop: 20 }}><Skeleton rows={6} /></div> : (
         <div className="two-col" style={{ marginTop: 20 }}>
-          <div className="grid">
+          <div>
+          <div className="grid" style={{ marginBottom: 20 }}>
             <div className="uw-head"><span><b>To do</b> <span className="small">{items.length ? `${items.length} item${items.length > 1 ? 's' : ''} · most urgent first` : 'all clear'}</span></span></div>
             {items.length === 0 && (
               <p className="small" style={{ padding: 18 }}>
@@ -392,6 +399,27 @@ export default function Dashboard({ org }: { org: Org }) {
                 </div>
               )
             })}
+          </div>
+
+          <div className="grid">
+            <div className="uw-head"><span><b>Annual reviews</b> <span className="small">every loan under review — the loan page drafts the memo</span></span></div>
+            {annuals.length === 0 && <p className="small" style={{ padding: 18 }}>No annual reviews scheduled.</p>}
+            {annuals.map(a => {
+              const loan = loans.find(l => l.id === a.loan_id)
+              const late = a.status !== 'complete' && a.status !== 'waived' && daysLate(a.due) > 0
+              return (
+                <div className="wq-row" key={a.id}>
+                  <span className="small mono" style={{ width: 58 }}>{fmtDay(a.due)}</span>
+                  <span style={{ flex: 1 }}>{loan?.customers?.company ?? '—'} <span className="small">· {a.responsible}</span></span>
+                  {a.status === 'complete' ? <span className="status s-green"><Ico.check /> Complete</span>
+                    : a.status === 'waived' ? <span className="status s-gray">Waived</span>
+                    : late ? <span className="status s-amber"><Ico.clock /> {daysLate(a.due)}d overdue</span>
+                    : <span className="status s-gray">Upcoming</span>}
+                  <a className="linkish" href={`#/app/loans/${a.loan_id}`}>{a.loan_number} →</a>
+                </div>
+              )
+            })}
+          </div>
           </div>
 
           <div>
