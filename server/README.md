@@ -7,7 +7,7 @@ API costs — your only bill is the GPU while it's powered on.
 ## Boot the stack (Lambda 1× A100, Lambda Stack image)
 
 ```bash
-git clone https://github.com/wilsoz1/crescreener && cd crescreener/server
+git clone https://github.com/wilsoz1/notesolo && cd notesolo/server
 export SUPABASE_SERVICE_ROLE_KEY=...        # Supabase dashboard → settings → API
 export CADDY_DOMAIN=api.notesolo.com     # add an A record for this → the box IP
 docker compose up -d --build
