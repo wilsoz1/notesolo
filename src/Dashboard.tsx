@@ -68,14 +68,16 @@ export default function Dashboard({ org }: { org: Org }) {
   const [strip, setStrip] = useState<{ label: string; value: string; alert?: boolean }[]>([])
   const [loans, setLoans] = useState<(DbLoan & { customers: { company: string | null } | null })[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
-  const [covenants, setCovenants] = useState<DbCovenant[]>([])
+  const [covenants, setCovenants] = useState<(DbCovenant & { loan_id?: string })[]>([])
   const [upcoming, setUpcoming] = useState<Upcoming[]>([])
+  const [deposits, setDeposits] = useState<{ balance: number; opened: string | null }[]>([])
+  const [dscrs, setDscrs] = useState<{ company: string; dscr: number; loanId: string }[]>([])
 
   useEffect(() => {
     Promise.all([
       supabase.from('loans').select('*, customers(company)'),
       supabase.from('loan_payments').select('id, loan_id, due_date, amount, status, paid_date'),
-      supabase.from('deposits').select('balance'),
+      supabase.from('deposits').select('balance, opened'),
       supabase.from('credit_lines').select('commitment, outstanding'),
       supabase.from('covenants').select('*'),
       supabase.from('ticklers').select('id, requirement, due_date, status, responsible, loan_id, loans(loan_number)'),
@@ -114,6 +116,7 @@ export default function Dashboard({ org }: { org: Org }) {
       }
       const allSpreads = (reviewed.data as Spread[]) ?? []
       const allGuar = (guar.data as unknown as (Guarantor & { loans: { customer_id: string | null } | null })[]) ?? []
+      const dscrList: { company: string; dscr: number; loanId: string }[] = []
       for (const cf of (cfs.data as unknown as { id: string; customer_id: string; name: string; data: CFScenarioData; customers: { company: string | null } | null }[]) ?? []) {
         const r = latestGlobalDSCR(
           cf.data ?? {},
@@ -122,12 +125,16 @@ export default function Dashboard({ org }: { org: Org }) {
           allLoans.filter(l => l.customer_id === cf.customer_id),
         )
         const target = loanFor(cf.customer_id)
-        if (r && r.dscr < 1.2 && target) out.push({
+        if (!r || !target) continue
+        dscrList.push({ company: cf.customers?.company ?? '—', dscr: r.dscr, loanId: target.id })
+        if (r.dscr < 1.2) out.push({
           sev: r.dscr < 1 ? 0 : 1, chip: 'cash flow',
           text: `Global DSCR ${r.dscr.toFixed(2)}x on ${cf.customers?.company} (${cf.name} · ${r.period})`,
           action: 'Open cash flow', href: `#/app/loans/${target.id}/Borrower`,
         })
       }
+      setDscrs(dscrList)
+      setDeposits((dep.data as { balance: number; opened: string | null }[]) ?? [])
       out.sort((a, b) => a.sev - b.sev)
       setItems(out)
 
@@ -206,6 +213,56 @@ export default function Dashboard({ org }: { org: Org }) {
     .sort((a, b) => b.total - a.total)
   const mixMax = Math.max(...mix.map(m => m.total), 1)
 
+  // Top 5 relationships by outstanding exposure.
+  const byCustomer = new Map<string, { company: string; total: number; loanId: string }>()
+  for (const l of loans) {
+    const key = l.customer_id ?? l.id
+    const cur = byCustomer.get(key)
+    const bal = Number(l.current_balance ?? l.amount)
+    if (cur) { cur.total += bal; if (Number(l.amount) > 0 && !cur.loanId) cur.loanId = l.id }
+    else byCustomer.set(key, { company: l.customers?.company ?? l.loan_number, total: bal, loanId: l.id })
+  }
+  const topExposures = [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, 5)
+  const topMax = Math.max(...topExposures.map(t => t.total), 1)
+
+  // Global DSCR distribution across relationships with a computable base case.
+  const buckets = [
+    { label: '< 1.00x', color: C.red, n: dscrs.filter(d => d.dscr < 1).length },
+    { label: '1.00 – 1.25x', color: C.amber, n: dscrs.filter(d => d.dscr >= 1 && d.dscr < 1.25).length },
+    { label: '1.25 – 1.50x', color: C.blue, n: dscrs.filter(d => d.dscr >= 1.25 && d.dscr < 1.5).length },
+    { label: '≥ 1.50x', color: C.green, n: dscrs.filter(d => d.dscr >= 1.5).length },
+  ]
+  const bucketMax = Math.max(...buckets.map(b => b.n), 1)
+
+  // Deposits: cumulative balances by account-open month (we keep no balance history —
+  // this is growth of the deposit book, not statement balances).
+  const depTotalNow = deposits.reduce((s, d) => s + Number(d.balance), 0)
+  const depSeries = months.map(m =>
+    deposits.reduce((s, d) => {
+      const om = d.opened ? (d.opened.slice(0, 7) > nowMonth ? nowMonth : d.opened.slice(0, 7)) : nowMonth
+      return s + (om <= m ? Number(d.balance) : 0)
+    }, 0))
+
+  // Payments due in the next 7 days: scheduled payment rows plus each loan's
+  // next-payment fields (future payments usually exist only on the loan record).
+  const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  const weekFromRows = payments
+    .filter(p => p.status !== 'paid' && p.due_date >= todayStr && p.due_date <= weekEnd)
+    .map(p => ({ key: `${p.loan_id}:${p.due_date}`, due_date: p.due_date, amount: Number(p.amount), loan: loans.find(l => l.id === p.loan_id) }))
+  const seen = new Set(weekFromRows.map(w => w.key))
+  const weekFromLoans = loans
+    .filter(l => l.next_payment_date && l.next_payment_amount && l.next_payment_date >= todayStr && l.next_payment_date <= weekEnd
+      && !seen.has(`${l.id}:${l.next_payment_date}`))
+    .map(l => ({ key: `${l.id}:${l.next_payment_date}`, due_date: l.next_payment_date!, amount: Number(l.next_payment_amount), loan: l as (typeof loans)[number] | undefined }))
+  const weekPayments = [...weekFromRows, ...weekFromLoans].sort((a, b) => (a.due_date < b.due_date ? -1 : 1))
+
+  // Covenant test calendar: next scheduled tests, overdue ones first.
+  const covCal = covenants
+    .filter(c => c.next_test)
+    .sort((a, b) => (a.next_test! < b.next_test! ? -1 : 1))
+    .slice(0, 8)
+    .map(c => ({ ...c, loan: loans.find(l => l.id === c.loan_id) }))
+
   // The to-do list, grouped so each kind of work reads as its own block.
   const GROUPS: { chip: string; label: string }[] = [
     { chip: 'past due', label: 'Past-due payments' },
@@ -276,6 +333,38 @@ export default function Dashboard({ org }: { org: Org }) {
           </div>
           <Spark series={lateSeries} color={C.pink} />
         </div>
+
+        <div className="dash-card">
+          <h4>Top exposures <i>by relationship</i></h4>
+          {topExposures.map(t => (
+            <div className="dash-bar-row" key={t.company}>
+              <a className="cell-link ellipsis" style={{ width: 130, flex: 'none' }} href={`#/app/loans/${t.loanId}/Borrower`} title={t.company}>{t.company}</a>
+              <span className="dash-track"><i style={{ width: `${(t.total / topMax) * 100}%`, background: C.blue }} /></span>
+              <b>{fmtShort(t.total)}</b>
+            </div>
+          ))}
+          {!topExposures.length && <p className="small">No loans yet.</p>}
+        </div>
+
+        <div className="dash-card">
+          <h4>Global DSCR <i>{dscrs.length} relationship{dscrs.length === 1 ? '' : 's'} measured</i></h4>
+          {buckets.map(b => (
+            <div className="dash-bar-row" key={b.label}>
+              <span className="swatch" style={{ background: b.color }} />
+              <span style={{ width: 90 }}>{b.label}</span>
+              <span className="dash-track"><i style={{ width: `${(b.n / bucketMax) * 100}%`, background: b.color }} /></span>
+              <b>{b.n}</b>
+            </div>
+          ))}
+          <div className="dash-delta small" style={{ marginTop: 8 }}>from each relationship's base cash-flow scenario</div>
+        </div>
+
+        <div className="dash-card">
+          <h4>Deposit balances <i>{deposits.length} account{deposits.length === 1 ? '' : 's'}</i></h4>
+          <div className="dash-big">{money(depTotalNow)}</div>
+          <div className="dash-delta small">book growth by account opening — no balance history kept</div>
+          <Spark series={depSeries} color={C.green} />
+        </div>
       </div>
 
       {items === null ? <div style={{ marginTop: 20 }}><Skeleton rows={6} /></div> : (
@@ -305,16 +394,47 @@ export default function Dashboard({ org }: { org: Org }) {
             })}
           </div>
 
-          <div className="grid">
-            <div className="uw-head"><span><b>Coming up</b> <span className="small">next 90 days — maturities, draw periods, resets, reporting</span></span></div>
-            {upcoming.length === 0 && <p className="small" style={{ padding: 18 }}>Nothing on the calendar for the next 90 days.</p>}
-            {upcoming.map((u, i) => (
-              <div className="wq-row" key={i}>
-                <span className="small mono" style={{ width: 58 }}>{fmtDay(u.on)}</span>
-                <span style={{ flex: 1 }}>{u.what}</span>
-                <a className="linkish" href={`#/app/loans/${u.loan_id}`}>{u.loan_number} →</a>
-              </div>
-            ))}
+          <div>
+            <div className="grid" style={{ marginBottom: 20 }}>
+              <div className="uw-head"><span><b>Coming up</b> <span className="small">next 90 days — maturities, draw periods, resets, reporting</span></span></div>
+              {upcoming.length === 0 && <p className="small" style={{ padding: 18 }}>Nothing on the calendar for the next 90 days.</p>}
+              {upcoming.map((u, i) => (
+                <div className="wq-row" key={i}>
+                  <span className="small mono" style={{ width: 58 }}>{fmtDay(u.on)}</span>
+                  <span style={{ flex: 1 }}>{u.what}</span>
+                  <a className="linkish" href={`#/app/loans/${u.loan_id}`}>{u.loan_number} →</a>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid" style={{ marginBottom: 20 }}>
+              <div className="uw-head"><span><b>Payments due this week</b> <span className="small">{weekPayments.length ? money(weekPayments.reduce((s, p) => s + Number(p.amount), 0)) + ' expected' : 'next 7 days'}</span></span></div>
+              {weekPayments.length === 0 && <p className="small" style={{ padding: 18 }}>No payments fall due in the next 7 days.</p>}
+              {weekPayments.map(p => (
+                <div className="wq-row" key={p.key}>
+                  <span className="small mono" style={{ width: 58 }}>{fmtDay(p.due_date)}</span>
+                  <span style={{ flex: 1 }}>{p.loan?.customers?.company ?? '—'}</span>
+                  <span className="mono">{money(p.amount)}</span>
+                  <a className="linkish" href={`#/app/loans/${p.loan?.id}/Payments`}>{p.loan?.loan_number ?? 'loan'} →</a>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid">
+              <div className="uw-head"><span><b>Covenant tests</b> <span className="small">next scheduled tests across the book</span></span></div>
+              {covCal.length === 0 && <p className="small" style={{ padding: 18 }}>No covenant tests scheduled.</p>}
+              {covCal.map(c => {
+                const overdue = c.next_test! < todayStr
+                return (
+                  <div className="wq-row" key={c.id}>
+                    <span className="small mono" style={{ width: 58 }}>{fmtDay(c.next_test!)}</span>
+                    <span style={{ flex: 1 }}>{c.name}{overdue && <span className="status s-amber" style={{ marginLeft: 8 }}><Ico.clock /> overdue</span>}</span>
+                    <span className={`status ${c.status === 'Fail' ? 's-red' : c.status === 'Near' ? 's-amber' : 's-gray'}`}>{c.status}</span>
+                    <a className="linkish" href={`#/app/loans/${c.loan_id}/Compliance`}>{c.loan?.loan_number ?? 'loan'} →</a>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}
