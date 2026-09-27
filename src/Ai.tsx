@@ -1,5 +1,5 @@
-// Shared UI for the model-gateway features: ask-the-portfolio, drafted memos, tiny markdown view.
-import { useState } from 'react'
+// Shared UI for the model-gateway features: portfolio chat, drafted memos, tiny markdown view.
+import { useEffect, useRef, useState } from 'react'
 import { API_URL, aiAsk, aiDraft } from './api'
 import { Ico } from './Icons'
 
@@ -17,6 +17,109 @@ export const Md = ({ text }: { text: string }) => (
     })}
   </div>
 )
+
+// ——— Portfolio chat: conversational Q&A over the book, always visible ———
+
+type ChatMsg = { role: 'user' | 'assistant'; text: string; rows?: Record<string, unknown>[] }
+
+const cellText = (v: unknown): string => {
+  if (v == null) return '—'
+  if (Array.isArray(v)) return v.map(cellText).join(' · ')
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    return [o.name, o.fico != null ? `FICO ${o.fico}` : null, o.loan_number].filter(Boolean).join(' ') || JSON.stringify(o)
+  }
+  return v === 'Servicing' ? 'Active' : String(v)
+}
+
+const SUGGESTIONS = [
+  'loans from 1-5MM with a guarantor FICO below 700',
+  'which loans are interest-only?',
+  'covenants failing right now',
+  'deposits over $200K',
+]
+
+export function Chat() {
+  const [msgs, setMsgs] = useState<ChatMsg[]>([])
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const scroller = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight }) }, [msgs, busy])
+
+  const send = async (text: string) => {
+    if (!text.trim() || busy) return
+    setQ('')
+    setMsgs(m => [...m, { role: 'user', text }])
+    setBusy(true)
+    const history: { question: string; answer: string }[] = []
+    for (let i = 0; i + 1 < msgs.length; i += 1) {
+      if (msgs[i].role === 'user' && msgs[i + 1]?.role === 'assistant')
+        history.push({ question: msgs[i].text, answer: msgs[i + 1].text })
+    }
+    const out = await aiAsk(text, history.slice(-4))
+    setBusy(false)
+    setMsgs(m => [...m, out
+      ? { role: 'assistant', text: out.answer, rows: out.rows }
+      : { role: 'assistant', text: 'I could not reach the models — is the gateway running? Start it with server/run-local.sh, then try again.' }])
+  }
+
+  return (
+    <div className="grid" style={{ marginBottom: 20 }}>
+      <div className="uw-head">
+        <span><b>Ask your portfolio</b> <span className="small">open-source models on your own hardware — answers come only from your data</span></span>
+        {msgs.length > 0 && <button className="linkish" onClick={() => setMsgs([])}>Clear</button>}
+      </div>
+
+      {!API_URL ? (
+        <p className="small" style={{ padding: '4px 14px 16px' }}>
+          The chat needs your AI gateway. Start it (<span className="mono">server/run-local.sh</span>) and open{' '}
+          <span className="mono">notesolo.com/?api=http://localhost:8787</span> once in this browser — the connection is remembered.
+        </p>
+      ) : (
+        <>
+          {msgs.length === 0 && !busy && (
+            <div className="chat-sugs">
+              {SUGGESTIONS.map(s => <button key={s} className="f-chip" onClick={() => send(s)}>{s}</button>)}
+            </div>
+          )}
+          {(msgs.length > 0 || busy) && (
+            <div className="chat-msgs" ref={scroller}>
+              {msgs.map((m, i) => (
+                <div key={i} className={`chat-b ${m.role === 'user' ? 'u' : 'a'}`}>
+                  <div>{m.text}</div>
+                  {m.rows && m.rows.length > 0 && (
+                    <div style={{ overflowX: 'auto', marginTop: 8 }}>
+                      <table className="chat-table">
+                        <thead><tr>{Object.keys(m.rows[0]).map(k => <th key={k}>{k.replace(/_/g, ' ')}</th>)}</tr></thead>
+                        <tbody>
+                          {m.rows.slice(0, 8).map((r, j) => (
+                            <tr key={j}>{Object.values(r).map((v, c) => <td key={c} className="small">{cellText(v)}</td>)}</tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {m.rows.length > 8 && <div className="small" style={{ marginTop: 4 }}>…and {m.rows.length - 8} more rows</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {busy && <div className="chat-b a"><span className="spin" /> Planning the query, checking your book…</div>}
+            </div>
+          )}
+          <form className="askbar" onSubmit={e => { e.preventDefault(); send(q) }}>
+            <Ico.search />
+            <input
+              value={q} onChange={e => setQ(e.target.value)} required
+              aria-label="Ask your portfolio"
+              placeholder='e.g. "loans from 1-5MM with a guarantor FICO below 700" — follow-ups welcome'
+            />
+            <button className="btn-dark" disabled={busy}>{busy ? 'Thinking…' : 'Ask'}</button>
+          </form>
+        </>
+      )}
+    </div>
+  )
+}
 
 export function AskBar() {
   const [q, setQ] = useState('')

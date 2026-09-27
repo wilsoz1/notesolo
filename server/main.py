@@ -254,17 +254,21 @@ OBLIGATION_SCHEMA = {
     "required": ["ticklers", "covenants"],
 }
 
+_FILTER = {"type": "object", "additionalProperties": False, "properties": {
+    "field": {"type": "string"}, "op": {"type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "ilike"]},
+    "value": {"type": ["string", "number"]}}, "required": ["field", "op", "value"]}
+
 ASK_PLAN_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "table": {"type": "string", "enum": ["loans", "deposits", "credit_lines", "ticklers", "covenants"]},
-        "filters": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {
-            "field": {"type": "string"}, "op": {"type": "string", "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "ilike"]},
-            "value": {"type": ["string", "number"]}}, "required": ["field", "op", "value"]}},
+        "table": {"type": "string", "enum": ["loans", "deposits", "credit_lines", "ticklers", "covenants", "guarantors"]},
+        "filters": {"type": "array", "items": _FILTER},
+        # Only meaningful when table = loans: conditions on the loans' guarantors.
+        "guarantor_filters": {"type": "array", "items": _FILTER},
         "order_by": {"type": ["string", "null"]},
         "limit": {"type": "integer"},
     },
-    "required": ["table", "filters", "order_by", "limit"],
+    "required": ["table", "filters", "guarantor_filters", "order_by", "limit"],
 }
 ASK_FIELDS = {
     "loans": ["loan_number", "type", "stage", "amount", "rate", "ltv", "dscr", "maturity", "payment_type", "draw_period_end", "io_end_date", "current_balance", "rm"],
@@ -272,6 +276,7 @@ ASK_FIELDS = {
     "credit_lines": ["name", "commitment", "outstanding", "rate", "maturity"],
     "ticklers": ["requirement", "responsible", "due_date", "status"],
     "covenants": ["name", "requirement", "actual", "status", "next_test"],
+    "guarantors": ["name", "fico", "guarantee_pct", "net_worth", "liquidity", "pfs_date"],
 }
 
 
@@ -462,33 +467,54 @@ def draft(req: DraftReq, orgs: List[str] = Depends(caller_orgs)):
 
 class AskReq(BaseModel):
     question: str
+    history: Optional[List[Dict[str, str]]] = None  # [{question, answer}] — prior turns for follow-ups
 
 
 @app.post("/api/ask")
 def ask(req: AskReq, orgs: List[str] = Depends(caller_orgs)):
+    convo = ""
+    for turn in (req.history or [])[-4:]:
+        convo += f"Earlier — Q: {turn.get('question', '')}\nA: {turn.get('answer', '')}\n"
     plan = llm_json(
         "Translate the banker's question into a query plan. Allowed tables and fields: "
-        + json.dumps(ASK_FIELDS) + ". Dates are YYYY-MM-DD; ltv/dscr are numeric.",
-        req.question,
+        + json.dumps(ASK_FIELDS) + ". Dates are YYYY-MM-DD; ltv/dscr are numeric; fico is an integer. "
+        "For questions about loans WHOSE GUARANTOR meets a condition (e.g. 'guarantor FICO below 700'), "
+        "use table 'loans' and put the guarantor conditions in guarantor_filters (fields from the "
+        "guarantors list); otherwise leave guarantor_filters empty. A follow-up question refines the "
+        "earlier conversation shown above it.",
+        (convo + "Question: " + req.question) if convo else req.question,
         ASK_PLAN_SCHEMA,
-        mock={"table": "loans", "filters": [{"field": "payment_type", "op": "eq", "value": "I/O"}], "order_by": "maturity", "limit": 20},
+        mock={"table": "loans", "filters": [{"field": "payment_type", "op": "eq", "value": "I/O"}],
+              "guarantor_filters": [], "order_by": "maturity", "limit": 20},
     )
     table = plan["table"]
     allowed = set(ASK_FIELDS[table])
-    params: Dict[str, str] = {"select": ",".join(ASK_FIELDS[table]), "org_id": f"eq.{orgs[0]}",
-                              "limit": str(min(int(plan.get("limit") or 20), 50))}
+    g_allowed = set(ASK_FIELDS["guarantors"])
+    g_filters = [f for f in (plan.get("guarantor_filters") or []) if f["field"] in g_allowed] if table == "loans" else []
+
+    select = ",".join(ASK_FIELDS[table])
+    if g_filters:
+        # Embedded join: loans that HAVE a guarantor matching every condition.
+        select += ",guarantors!inner(" + ",".join(ASK_FIELDS["guarantors"]) + ")"
+    elif table == "guarantors":
+        select += ",loans(loan_number)"
+    params: Dict[str, str] = {"select": select, "org_id": f"eq.{orgs[0]}",
+                              "limit": str(min(int(plan.get("limit") or 20) or 20, 50))}
     for f in plan["filters"]:
         if f["field"] not in allowed:
             continue  # whitelist: silently drop anything outside the schema
-        op = f["op"] if f["op"] != "neq" else "neq"
-        params[f["field"]] = f"{op}.{f['value']}"
+        params[f["field"]] = f"{f['op']}.{f['value']}"
+    for f in g_filters:
+        params[f"guarantors.{f['field']}"] = f"{f['op']}.{f['value']}"
     if plan.get("order_by") in allowed:
         params["order"] = f"{plan['order_by']}.asc"
     rows = sb(table, params=params)
     answer = llm_text(
-        "Answer the banker's question in 2-4 sentences using ONLY these rows. Include figures.",
-        json.dumps({"question": req.question, "rows": rows}, default=str)[:20000],
-        mock=f"{len(rows)} loans are interest-only. The nearest maturity is {rows[0]['maturity'] if rows else 'n/a'}.",
+        "Answer the banker's question in 2-4 sentences using ONLY these rows. Include figures. "
+        "If earlier conversation is shown, the question may be a follow-up to it.",
+        json.dumps({"conversation": convo or None, "question": req.question, "rows": rows}, default=str)[:20000],
+        # NB: this f-string evaluates even when MOCK is off — keep it total for any table.
+        mock=f"{len(rows)} rows matched. Example: {rows[0].get('maturity') or rows[0].get('name') or next(iter(rows[0].values()), '') if rows else 'n/a'}.",
     )
     return {"answer": answer, "rows": rows, "plan": plan}
 

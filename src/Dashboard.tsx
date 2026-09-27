@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase, Org, Payment, Spread, Guarantor, DbCovenant, money, daysLate, pastDueOf } from './supabase'
 import { DbLoan } from './supabase'
 import { latestGlobalDSCR, CFScenarioData } from './CashFlow'
-import { AskBar, DraftButton } from './Ai'
+import { Chat, DraftButton } from './Ai'
 import { Skeleton } from './dialogs'
 import { Ico } from './Icons'
 
@@ -301,7 +301,7 @@ export default function Dashboard({ org }: { org: Org }) {
         </div>
       </div>
 
-      <div style={{ marginTop: 16 }}><AskBar /></div>
+      <div style={{ marginTop: 16 }}><Chat /></div>
 
       {/* Analytics — the marketing page's collage, on live data */}
       <div className="dash-cards">
