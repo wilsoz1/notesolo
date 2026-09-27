@@ -4,6 +4,7 @@ import Screener from './Screener'
 import Dashboard from './Dashboard'
 import Loans from './Loans'
 import LoanPage from './LoanPage'
+import Reports from './Reports'
 import Search from './Search'
 import SharePage from './SharePage'
 import { SignIn, Onboarding } from './Auth'
@@ -25,6 +26,7 @@ const useHash = () => {
 const NAV = [
   { href: '#/app', key: '', icon: Ico.status, label: 'Dashboard' },
   { href: '#/app/portfolio', key: 'portfolio', icon: Ico.doc, label: 'Portfolio' },
+  { href: '#/app/reports', key: 'reports', icon: Ico.percent, label: 'Reports' },
   { href: '#/app/screener', key: 'screener', icon: Ico.search, label: 'Screener' },
 ]
 // Detail routes highlight their parent section.
@@ -89,6 +91,7 @@ export default function App() {
     : !app.org ? <Onboarding app={app} />
     : sub === 'loans' && subId ? <LoanPage org={app.org} loanId={subId} initialTab={sub2} />
     : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' ? <Loans org={app.org} />
+    : sub === 'reports' ? <Reports org={app.org} />
     : sub === 'screener' ? <Screener org={app.org} />
     : <Dashboard org={app.org} />
 
