@@ -76,6 +76,36 @@ export function computeCashFlow(
   })
 }
 
+// ——— Interest-rate sensitivity ———
+// Only floating-rate notes reprice when rates move; fixed notes hold until reset.
+// A +bps shock adds (floating balance × bps) of annual interest to debt service —
+// the standard quick sensitivity, deterministic and explainable.
+
+export const RATE_SHOCKS = [100, 200, 300]
+export const isFloating = (rate: string | null) => /sofr|prime|libor|\+/i.test(rate ?? '')
+
+export function dsComposition(loans: DbLoan[]) {
+  let fixedDS = 0, floatDS = 0, floatBal = 0, floatN = 0
+  for (const l of loans) {
+    const ds = l.next_payment_amount ? Number(l.next_payment_amount) * 12 : 0
+    if (!ds) continue
+    if (isFloating(l.rate)) { floatDS += ds; floatBal += Number(l.current_balance ?? l.amount); floatN++ }
+    else fixedDS += ds
+  }
+  return { fixedDS, floatDS, floatBal, floatN, totalDS: fixedDS + floatDS }
+}
+
+export function shockedDscr(globalCF: number | null, comp: ReturnType<typeof dsComposition>, proposedDS: number, bps: number) {
+  const ds = comp.totalDS + proposedDS + (comp.floatBal * bps) / 10000
+  return { ds, dscr: globalCF != null && ds > 0 ? globalCF / ds : null }
+}
+
+/** Largest shock (bps) at which global DSCR still meets `target`; null when nothing floats. */
+export function breakevenBps(globalCF: number | null, comp: ReturnType<typeof dsComposition>, proposedDS: number, target: number) {
+  if (globalCF == null || !comp.floatBal) return null
+  return Math.floor(((globalCF / target - (comp.totalDS + proposedDS)) * 10000) / comp.floatBal)
+}
+
 /** Latest-period global DSCR for a base scenario — used by the Today work queue. */
 export function latestGlobalDSCR(scenario: CFScenarioData, spreads: Spread[], guarantors: Guarantor[], loans: DbLoan[]) {
   const cols = computeCashFlow(scenario, spreads, guarantors, loans)
@@ -379,6 +409,43 @@ export function CashFlowPanel({ org, customerId, guarantors, spreads, loans }: {
               debt service recomputes from live loan payments{first.proposedDS ? ' + the proposed facility' : ''} — nothing here is stored, only your judgment is.
             </p>
           )}
+
+          {/* Rate sensitivity on the ACTIVE scenario's latest-period cash flow: only
+              floating notes reprice; fixed notes hold until their reset date. */}
+          {(() => {
+            const last = cols[cols.length - 1]
+            if (!last || last.globalCF == null) return null
+            const comp = dsComposition(loans)
+            if (!comp.totalDS && !last.proposedDS) return null
+            const be125 = breakevenBps(last.globalCF, comp, last.proposedDS, 1.25)
+            return (
+              <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px 14px' }}>
+                <div className="small" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600, marginBottom: 8 }}>
+                  Rate sensitivity · {last.period} cash flow
+                </div>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[0, ...RATE_SHOCKS].map(bps => {
+                    const s = shockedDscr(last.globalCF, comp, last.proposedDS, bps)
+                    return (
+                      <span key={bps} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+                        <span className="small mono">{bps === 0 ? 'today' : `+${bps}bp`}</span>
+                        {s.dscr == null ? <span className="small">—</span> : (
+                          <span className={`status ${s.dscr >= 1.25 ? 's-green' : s.dscr >= 1 ? 's-amber' : 's-red'}`}>{s.dscr.toFixed(2)}x</span>
+                        )}
+                      </span>
+                    )
+                  })}
+                </div>
+                <p className="small" style={{ margin: '8px 0 0' }}>
+                  {comp.floatN
+                    ? <>{money(comp.floatBal)} floats across {comp.floatN} note{comp.floatN === 1 ? '' : 's'}; fixed notes hold until reset. {be125 !== null && (be125 >= 0
+                        ? <>Holds ≥ 1.25x up to <b>+{be125}bp</b>.</>
+                        : <>Already below 1.25x before any shock.</>)}</>
+                    : 'Every note is fixed-rate — debt service is immune to rate moves until reset dates.'}
+                </p>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

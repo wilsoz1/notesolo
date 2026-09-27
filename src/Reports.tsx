@@ -3,12 +3,79 @@
 // findings ("operating entities above $1MM reduced receipts 2.2%") — the aggregation
 // work no analyst has time to do by hand, computed from real rows, never guessed.
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, Org, Customer, DbLoan, Spread, SPREAD_LINES, money } from './supabase'
+import { supabase, Org, Customer, DbLoan, Spread, Guarantor, SPREAD_LINES, money } from './supabase'
+import { computeCashFlow, dsComposition, shockedDscr, breakevenBps, RATE_SHOCKS, CFScenarioData } from './CashFlow'
 import { Skeleton } from './dialogs'
 import { Ico } from './Icons'
 
 const pct = (v: number, digits = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`
 const fyYear = (period: string) => period.match(/^FY (\d{4})$/)?.[1] ?? null
+
+// ——— Interest-rate sensitivity across the book: who breaks first when rates move ———
+function RateSensitivity({ customers, loans, spreads, scenarios, guarantors }: {
+  customers: Customer[]
+  loans: DbLoan[]
+  spreads: Spread[]
+  scenarios: { customer_id: string; data: CFScenarioData }[]
+  guarantors: (Guarantor & { loans: { customer_id: string | null } | null })[]
+}) {
+  const rows = scenarios.map(sc => {
+    const custLoans = loans.filter(l => l.customer_id === sc.customer_id)
+    const cols = computeCashFlow(sc.data ?? {}, spreads.filter(s => s.customer_id === sc.customer_id),
+      guarantors.filter(g => g.loans?.customer_id === sc.customer_id), custLoans)
+    const last = cols[cols.length - 1]
+    if (!last || last.globalCF == null) return null
+    const comp = dsComposition(custLoans)
+    if (!comp.totalDS) return null
+    const company = customers.find(c => c.id === sc.customer_id)?.company ?? '—'
+    const loanId = custLoans.sort((a, b) => Number(b.amount) - Number(a.amount))[0]?.id
+    return { company, loanId, comp, globalCF: last.globalCF, proposedDS: last.proposedDS,
+             be125: breakevenBps(last.globalCF, comp, last.proposedDS, 1.25) }
+  }).filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) => (a.be125 ?? Infinity) - (b.be125 ?? Infinity))
+
+  if (!rows.length) return null
+  const floatTotal = rows.reduce((s, r) => s + r.comp.floatBal, 0)
+  const dsTotal = rows.reduce((s, r) => s + r.comp.totalDS + r.proposedDS, 0)
+  const floatDsShare = dsTotal ? rows.reduce((s, r) => s + r.comp.floatDS, 0) / dsTotal : 0
+
+  return (
+    <div className="grid" style={{ marginBottom: 20 }}>
+      <div className="uw-head"><span><b>Interest-rate sensitivity</b> <span className="small">
+        {money(floatTotal)} floats · {Math.round(floatDsShare * 100)}% of debt service reprices immediately · fixed notes hold until reset · most exposed first
+      </span></span></div>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead><tr>
+            <th>Relationship</th><th className="num">Floating balance</th>
+            <th className="num">DSCR today</th>
+            {RATE_SHOCKS.map(b => <th key={b} className="num">+{b}bp</th>)}
+            <th className="num">Holds 1.25x to</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.company}>
+                <td>{r.loanId ? <a className="cell-link" href={`#/app/loans/${r.loanId}/Borrower`}>{r.company}</a> : r.company}</td>
+                <td className="num mono">{r.comp.floatBal ? money(r.comp.floatBal) : <span className="small">all fixed</span>}</td>
+                {[0, ...RATE_SHOCKS].map(bps => {
+                  const s = shockedDscr(r.globalCF, r.comp, r.proposedDS, bps)
+                  return <td key={bps} className="num">{s.dscr == null ? '—' : (
+                    <span className={`status ${s.dscr >= 1.25 ? 's-green' : s.dscr >= 1 ? 's-amber' : 's-red'}`}>{s.dscr.toFixed(2)}x</span>
+                  )}</td>
+                })}
+                <td className="num mono">{r.be125 === null ? '∞' : r.be125 < 0 ? 'below now' : `+${r.be125}bp`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="small" style={{ padding: '8px 14px' }}>
+        Shock model: floating notes (SOFR/Prime-indexed) add balance × Δrate to annual debt service; fixed notes are
+        unchanged until their reset dates. Cash flow is each relationship's base scenario, latest fiscal year.
+      </p>
+    </div>
+  )
+}
 
 type Entity = {
   customer: Customer
@@ -22,6 +89,8 @@ export default function Reports({ org }: { org: Org }) {
   const [customers, setCustomers] = useState<Customer[] | null>(null)
   const [loans, setLoans] = useState<DbLoan[]>([])
   const [spreads, setSpreads] = useState<Spread[]>([])
+  const [scenarios, setScenarios] = useState<{ customer_id: string; data: CFScenarioData }[]>([])
+  const [guarantors, setGuarantors] = useState<(Guarantor & { loans: { customer_id: string | null } | null })[]>([])
   const [threshold, setThreshold] = useState(1_000_000)
 
   useEffect(() => {
@@ -29,10 +98,14 @@ export default function Reports({ org }: { org: Org }) {
       supabase.from('customers').select('*'),
       supabase.from('loans').select('*, customers(company)'),
       supabase.from('financial_spreads').select('*').eq('status', 'reviewed'),
-    ]).then(([c, l, s]) => {
+      supabase.from('cash_flow_scenarios').select('customer_id, data').eq('is_base', true),
+      supabase.from('guarantors').select('*, loans(customer_id)'),
+    ]).then(([c, l, s, cf, g]) => {
       setCustomers((c.data as Customer[]) ?? [])
       setLoans((l.data as DbLoan[]) ?? [])
       setSpreads((s.data as Spread[]) ?? [])
+      setScenarios((cf.data as { customer_id: string; data: CFScenarioData }[]) ?? [])
+      setGuarantors((g.data as unknown as (Guarantor & { loans: { customer_id: string | null } | null })[]) ?? [])
     })
   }, [org.id])
 
@@ -186,6 +259,8 @@ export default function Reports({ org }: { org: Org }) {
           </table>
         </div>
       </div>
+
+      <RateSensitivity customers={customers} loans={loans} spreads={spreads} scenarios={scenarios} guarantors={guarantors} />
 
       <div className="grid" style={{ marginBottom: 20 }}>
         <div className="uw-head"><span><b>Combined income statement &amp; balance sheet</b> <span className="small">
