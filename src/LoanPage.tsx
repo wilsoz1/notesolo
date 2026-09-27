@@ -7,11 +7,13 @@ import { API_URL, aiSpread, aiProcessDocument } from './api'
 import { confirmDialog, promptDialog, toast, currentUserName, Skeleton } from './dialogs'
 import { DraftButton } from './Ai'
 import { ModifyButton } from './Modify'
+import { PortalCard } from './Portal'
 import { Ico } from './Icons'
 
 const shareUrl = (token: string) => `${window.location.origin}/#/share/${token}`
 const covCls = { Pass: 's-green', Near: 's-amber', Fail: 's-red' } as const
 const TABS = ['Overview', 'Borrower', 'Payments', 'Spreads', 'Compliance', 'Structure', 'Documents', 'Activity'] as const
+type CovTest = { id: string; tested_at: string; actual: string; status: 'Pass' | 'Near' | 'Fail'; covenant_id: string }
 type Tab = (typeof TABS)[number]
 
 const payStatus = (p: Payment) => {
@@ -41,6 +43,7 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
   const [guarantors, setGuarantors] = useState<Guarantor[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [spreads, setSpreads] = useState<Spread[]>([])
+  const [covHistory, setCovHistory] = useState<CovTest[]>([])
   // Relationship-level data for the Borrower tab: every loan the customer has,
   // their deposits and lines, and all guarantors across the relationship.
   const [relLoans, setRelLoans] = useState<DbLoan[]>([])
@@ -93,16 +96,25 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
     setTicklers((tick.data as DbTickler[]) ?? []); setGuarantors((g.data as Guarantor[]) ?? [])
     setNotes((n.data as Note[]) ?? []); setOutreach(((o as { data: Attempt[] | null }).data as Attempt[]) ?? [])
 
-    // Auto-test computable covenants from the newest reviewed spread and persist any changes.
+    // Auto-test computable covenants from the newest reviewed spread and persist any changes —
+    // both the current value on the covenant AND an immutable covenant_tests history row,
+    // so every retest leaves a trail an examiner can follow.
     let covRows = (cov.data as DbCovenant[]) ?? []
     if (l) {
       const updates = autoTestCovenants(l, freshSpreads, covRows)
       for (const u of updates) {
         await supabase.from('covenants').update({ actual: u.actual, status: u.status }).eq('id', u.id)
+        await supabase.from('covenant_tests').insert({
+          org_id: org.id, covenant_id: u.id, loan_id: loanId, actual: u.actual, status: u.status, source: 'auto',
+        })
         covRows = covRows.map(c => (c.id === u.id ? { ...c, actual: u.actual, status: u.status } : c))
       }
     }
     setCovenants(covRows)
+    const { data: hist } = await supabase.from('covenant_tests')
+      .select('id, tested_at, actual, status, covenant_id')
+      .eq('loan_id', loanId).order('tested_at', { ascending: false }).limit(12)
+    setCovHistory((hist as CovTest[]) ?? [])
     setLoading(false)
   }
   useEffect(() => {
@@ -191,7 +203,7 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
       {tab === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} spreads={spreads} />}
       {tab === 'Payments' && <PaymentsTab loan={loan} payments={payments} />}
       {tab === 'Spreads' && <SpreadsTab loan={loan} spreads={spreads} onChange={load} />}
-      {tab === 'Compliance' && <ComplianceTab covenants={covenants} ticklers={ticklers} />}
+      {tab === 'Compliance' && <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />}
       {tab === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
       {tab === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
       {tab === 'Activity' && <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />}
@@ -291,6 +303,8 @@ function BorrowerTab({ org, loan, relLoans, relGuarantors, deposits, lines, spre
           </table>
         </Card>
       </div>
+
+      <PortalCard org={org} customerId={loan.customer_id} loanId={loan.id} />
 
       <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
 
@@ -478,8 +492,8 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
   )
 }
 
-// ——— Compliance: covenants + ticklers ———
-const ComplianceTab = ({ covenants, ticklers }: { covenants: DbCovenant[]; ticklers: DbTickler[] }) => (
+// ——— Compliance: covenants + ticklers + the immutable test trail ———
+const ComplianceTab = ({ covenants, ticklers, history }: { covenants: DbCovenant[]; ticklers: DbTickler[]; history: CovTest[] }) => (
   <>
     <Card title="Covenants" sub={`${covenants.length} tracked`}>
       <table>
@@ -498,6 +512,23 @@ const ComplianceTab = ({ covenants, ticklers }: { covenants: DbCovenant[]; tickl
         </tbody>
       </table>
     </Card>
+    {history.length > 0 && (
+      <Card title="Test history" sub="every automated retest, kept forever — the examiner's trail">
+        <table>
+          <thead><tr><th>Tested</th><th>Covenant</th><th>Result</th><th>Status</th></tr></thead>
+          <tbody>
+            {history.map(h => (
+              <tr key={h.id}>
+                <td className="small mono">{new Date(h.tested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                <td className="small">{covenants.find(c => c.id === h.covenant_id)?.name ?? '—'}</td>
+                <td className="small mono">{h.actual}</td>
+                <td><span className={`status ${covCls[h.status]}`}>{h.status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    )}
     <Card title="Ticklers & reporting" sub="what the loan agreement requires, and when">
       <table>
         <thead><tr><th>Requirement</th><th>Responsible</th><th>Due</th><th>Status</th></tr></thead>

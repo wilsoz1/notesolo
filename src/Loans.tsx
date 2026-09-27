@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, DbLoan, Org, Payment, PaymentType, money, pastDueOf } from './supabase'
 import { ModifyButton } from './Modify'
+import { ImportBook } from './ImportBook'
 import { Ico } from './Icons'
 
 const PAYMENT_TYPES: PaymentType[] = ['P&I', 'I/O', 'Deferred', 'I/O Deferred', 'Construction']
@@ -43,6 +44,7 @@ export default function Loans({ org }: { org: Org }) {
   const [f, setF] = useState<Filters>(EMPTY)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'loan', dir: 1 })
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const popRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function Loans({ org }: { org: Org }) {
       setReviewMap(map)
       setLoading(false)
     })
-  }, [org.id])
+  }, [org.id, reloadKey])
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!popRef.current?.contains(e.target as Node)) setFiltersOpen(false) }
@@ -184,6 +186,8 @@ export default function Loans({ org }: { org: Org }) {
             {[...f.pay, ...f.reviews, ...(f.pastDueOnly ? ['Past due'] : []), ...(f.inDraw ? ['In draw period'] : [])].join(' · ')}
           </span>
         )}
+        <span className="spacer" />
+        <ImportBook org={org} onDone={() => setReloadKey(k => k + 1)} />
       </div>
 
       <div className="grid">

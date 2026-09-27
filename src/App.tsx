@@ -7,6 +7,7 @@ import LoanPage from './LoanPage'
 import Reports from './Reports'
 import Search from './Search'
 import SharePage from './SharePage'
+import Portal from './Portal'
 import { SignIn, Onboarding } from './Auth'
 import { useSession } from './useSession'
 import { supabase } from './supabase'
@@ -44,9 +45,12 @@ export default function App() {
     if (!app.loading && section === 'app' && !authed) window.location.hash = '#/signin'
   }, [app.loading, section, authed])
 
-  // Public share room: standalone, no chrome.
+  // Public share room and borrower portal: standalone, no chrome.
   if (section === 'share' && sub) {
     return <div className="pub"><SharePage token={sub} /></div>
+  }
+  if (section === 'portal' && sub) {
+    return <div className="pub"><Portal token={sub} /></div>
   }
 
   // Marketing page carries its own (dark) chrome.
