@@ -13,7 +13,17 @@ export function useSession(): AppSession {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) =>
+      setSession(prev => {
+        // TOKEN_REFRESHED delivers a fresh object for the SAME user roughly hourly
+        // (and when a backgrounded tab wakes). Keeping the previous reference stops
+        // the org effect re-firing, which used to flip the whole app to "Loading…"
+        // and unmount every page — destroying in-progress work like a staged
+        // screening package. Anything needing the live token calls
+        // supabase.auth.getSession() directly, never this state.
+        if (prev && s && prev.user.id === s.user.id) return prev
+        return s
+      }))
     return () => sub.subscription.unsubscribe()
   }, [])
 
