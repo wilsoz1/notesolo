@@ -58,6 +58,10 @@ OCR_PROMPT_PLAIN = os.environ.get(
 # which is what gives extractions their page citations.
 OCR_BATCH = max(int(os.environ.get("OCR_BATCH_PAGES", "8")), 1)
 OCR_DPI = int(os.environ.get("OCR_DPI", "200"))
+# Keep the loaded model warm between the documents of a package (Ollama's default
+# unloads after ~5 min, forcing an 8GB reload per doc). Ollama still evicts on
+# demand when the other model needs the memory, so a long value costs nothing.
+KEEP_ALIVE = os.environ.get("MODEL_KEEP_ALIVE", "30m")
 # When set, every request dumps its OCR text and extraction JSON here — the only way
 # to tell an OCR miss from an extraction miss on a real document.
 DEBUG_DIR = os.environ.get("DEBUG_DIR", "")
@@ -189,65 +193,103 @@ def pdf_page_png(data: bytes, index: int, dpi: int) -> bytes:
     return png
 
 
+def pdf_text_pages(data: bytes, max_pages: int = 60) -> List[str]:
+    """Layout-preserving text extraction. PyMuPDF's default reading order scatters
+    IRS-form leader dots one per line and interleaves table columns — the LLM then
+    cross-wired Schedule L's begin/end-of-year columns. Rebuild each page from word
+    boxes instead: cluster words into rows by y, sort each row by x, drop pure
+    leader-fill runs, and mark wide horizontal gaps so columns stay columns."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=data, filetype="pdf")
+    pages: List[str] = []
+    for page in list(doc)[:max_pages]:
+        rows: List[List[tuple]] = []
+        for w in sorted(page.get_text("words"), key=lambda t: (t[1], t[0])):
+            if not w[4].strip("._·—- "):
+                continue  # dotted/underscore leader fill — pure noise
+            if rows and abs(w[1] - rows[-1][0][1]) <= 3:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+        lines = []
+        for row in rows:
+            parts: List[str] = []
+            prev_x1 = None
+            for x0, _y0, x1, _y1, word, *_ in sorted(row, key=lambda t: t[0]):
+                if prev_x1 is not None and x0 - prev_x1 > 20:
+                    parts.append("  ")  # column boundary
+                parts.append(word)
+                prev_x1 = x1
+            lines.append(" ".join(parts))
+        pages.append("\n".join(lines))
+    doc.close()
+    return pages
+
+
+# A digitally generated PDF carries its exact text — reading it is instant, free,
+# and MORE accurate than any vision model. Pages below this many characters are
+# treated as scans and go to the VLM; everything else skips OCR entirely.
+MIN_TEXT_CHARS = int(os.environ.get("OCR_MIN_TEXT_CHARS", "200"))
+
+
 def ocr(data: bytes, filename: str, first_page_only: bool = False) -> str:
-    """Any file -> markdown text with === PAGE n === markers."""
+    """Any file -> markdown text with === PAGE n === markers.
+    Digital PDFs read their embedded text layer — instant, free, and exact —
+    so the vision model only ever sees true scans (pages with no text layer)."""
     if MOCK:
         return _mock_ocr(filename)
+    chunks: List[str] = []
+    vlm_pages = 0
     if filename.lower().endswith(".pdf"):
-        pages = pdf_to_pngs(data, dpi=OCR_DPI)
+        texts = pdf_text_pages(data)
+        if first_page_only:
+            texts = texts[:1]
+        for i, t in enumerate(texts):
+            if len(t.strip()) >= MIN_TEXT_CHARS:
+                chunks.append(f"=== PAGE {i + 1} ===\n{t.strip()}")
+            else:
+                vlm_pages += 1
+                chunks.append(f"=== PAGE {i + 1} ===\n" + _vlm_page(pdf_page_png(data, i, OCR_DPI), data, i, is_pdf=True))
     else:
-        pages = [data]
-    if first_page_only:
-        pages = pages[:1]
-    chunks = []
-    for i in range(0, len(pages), OCR_BATCH):
-        batch = pages[i:i + OCR_BATCH]
-        content = [{"type": "text", "text": OCR_PROMPT}] + [
-            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(p).decode()}}
-            for p in batch
-        ]
-        try:
-            text = _ocr_call(content, temperature=0)
-        except httpx.HTTPStatusError as first_err:
-            # Greedy decoding can lock onto repeated glyph runs (leader dots, table
-            # borders, underscore fill-ins — 1120-S page 1 is the canonical case)
-            # and trip Ollama's repeat-abort guard. Ladder of escapes, each changing
-            # the token stream: warmer decode → plain-transcription prompt → the
-            # same page re-rendered at lower DPI. Only then is the page skipped.
-            text, last_err = None, first_err
-            images = content[1:]
-            attempts: List[tuple] = [
-                (OCR_PROMPT, images, 0.4),
-                (OCR_PROMPT_PLAIN, images, 0.6),
-            ]
-            if filename.lower().endswith(".pdf") and len(batch) == 1:
-                low = pdf_page_png(data, i, dpi=max(OCR_DPI - 60, 120))
-                attempts.append((OCR_PROMPT_PLAIN, [
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(low).decode()}}
-                ], 0.4))
-            for prompt, imgs, temp in attempts:
-                try:
-                    text = _ocr_call([{"type": "text", "text": prompt}] + imgs, temperature=temp)
-                    break
-                except httpx.HTTPStatusError as e:
-                    last_err = e
-            if text is None:
-                text = f"[pages {i + 1}-{i + len(batch)} unreadable — OCR aborted ({last_err.response.status_code})]"
-        label = f"=== PAGE {i + 1} ===" if len(batch) == 1 else f"=== PAGE {i + 1}–{i + len(batch)} ==="
-        chunks.append(label + "\n" + text)
+        vlm_pages = 1
+        chunks.append("=== PAGE 1 ===\n" + _vlm_page(data, data, 0, is_pdf=False))
     out = "\n".join(chunks)
     if DEBUG_DIR:
         try:
             with open(os.path.join(DEBUG_DIR, "notesolo-last-ocr.md"), "w") as fh:
-                fh.write(f"<!-- {filename} · {len(pages)} page(s) · dpi {OCR_DPI} -->\n{out}")
+                fh.write(f"<!-- {filename} · {len(chunks)} page(s) · {len(chunks) - vlm_pages} text-layer / {vlm_pages} vlm · dpi {OCR_DPI} -->\n{out}")
         except OSError:
             pass
     return out
 
 
+def _vlm_page(png: bytes, data: bytes, index: int, is_pdf: bool) -> str:
+    """One scanned page through the vision model, with the repeat-abort escape
+    ladder: warmer decode → plain-transcription prompt → lower-DPI re-render —
+    each changes the token stream that locks greedy decoding onto glyph runs
+    (leader dots, box borders — dense IRS form grids are the canonical case)."""
+    img = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(png).decode()}}
+    try:
+        return _ocr_call([{"type": "text", "text": OCR_PROMPT}, img], temperature=0)
+    except httpx.HTTPStatusError as first_err:
+        last_err = first_err
+        attempts: List[tuple] = [(OCR_PROMPT, img, 0.4), (OCR_PROMPT_PLAIN, img, 0.6)]
+        if is_pdf:
+            low = pdf_page_png(data, index, dpi=max(OCR_DPI - 60, 120))
+            attempts.append((OCR_PROMPT_PLAIN,
+                             {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(low).decode()}},
+                             0.4))
+        for prompt, image, temp in attempts:
+            try:
+                return _ocr_call([{"type": "text", "text": prompt}, image], temperature=temp)
+            except httpx.HTTPStatusError as e:
+                last_err = e
+        return f"[page {index + 1} unreadable — OCR aborted ({last_err.response.status_code})]"
+
+
 def _ocr_call(content: List[Dict[str, Any]], temperature: float) -> str:
     r = httpx.post(f"{OCR_BASE_URL}/chat/completions", timeout=1200, json={
-        "model": OCR_MODEL, "temperature": temperature, "max_tokens": 32768,
+        "model": OCR_MODEL, "temperature": temperature, "max_tokens": 32768, "keep_alive": KEEP_ALIVE,
         "messages": [{"role": "user", "content": content}],
     })
     r.raise_for_status()
@@ -255,26 +297,37 @@ def _ocr_call(content: List[Dict[str, Any]], temperature: float) -> str:
 
 
 def llm_json(system: str, user: str, schema: Dict[str, Any], mock: Any = None) -> Any:
-    """Structured extraction with vLLM guided decoding — output is schema-valid by construction."""
+    """Structured extraction with vLLM guided decoding — output is schema-valid by construction.
+    First pass runs with qwen3's /no_think switch: the schema grammar does the rigor,
+    and long thinking on a big schema can eat the whole token budget and leave the
+    content EMPTY (seen live: 55-field extract returned '' after 8 min). The retry
+    allows thinking again in case the fast pass under-delivers."""
     if MOCK:
         return mock
-    r = httpx.post(f"{LLM_BASE_URL}/chat/completions", timeout=600, json={
-        "model": LLM_MODEL, "temperature": 0, "max_tokens": 8192,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}},
-    })
-    if r.status_code >= 300:
-        # HTTPException keeps CORS headers on the response; a raw crash would
-        # surface in the browser as an unreadable "failed to fetch".
-        raise HTTPException(502, f"LLM backend error: {r.text[:200]}")
-    return json.loads(r.json()["choices"][0]["message"]["content"])
+    def call(sys_prompt: str) -> str:
+        r = httpx.post(f"{LLM_BASE_URL}/chat/completions", timeout=600, json={
+            "model": LLM_MODEL, "temperature": 0, "max_tokens": 8192, "keep_alive": KEEP_ALIVE,
+            "messages": [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user}],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}},
+        })
+        if r.status_code >= 300:
+            # HTTPException keeps CORS headers on the response; a raw crash would
+            # surface in the browser as an unreadable "failed to fetch".
+            raise HTTPException(502, f"LLM backend error: {r.text[:200]}")
+        return r.json()["choices"][0]["message"]["content"]
+    for sys_prompt in (system + " /no_think", system):
+        try:
+            return json.loads(call(sys_prompt))
+        except json.JSONDecodeError:
+            continue
+    raise HTTPException(502, "The model returned no usable JSON — try the document again.")
 
 
 def llm_text(system: str, user: str, mock: str = "") -> str:
     if MOCK:
         return mock
     r = httpx.post(f"{LLM_BASE_URL}/chat/completions", timeout=600, json={
-        "model": LLM_MODEL, "temperature": 0.3, "max_tokens": 4096,
+        "model": LLM_MODEL, "temperature": 0.3, "max_tokens": 4096, "keep_alive": KEEP_ALIVE,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     })
     if r.status_code >= 300:
@@ -759,6 +812,18 @@ async def extract_om(file: UploadFile = File(...)):  # noqa: C901
             BIZ_FIELD_SCHEMA,
             mock={k: {"text": None, "number": None, "confidence": 0.0, "page": None} for k in BIZ_FIELD_KEYS},
         )
+        # 1120-S Schedule L prints NO liabilities-only subtotal — its line 27 is
+        # "total liabilities AND shareholders' equity", and the model reliably
+        # grabs that. Total liabilities is arithmetic, not judgment: derive it
+        # from the balance identity instead of asking a model to do math.
+        ta = (fields.get("bs_total_assets") or {}).get("number")
+        eq = (fields.get("bs_equity") or {}).get("number")
+        tl = fields.get("bs_total_liabilities") or {}
+        if isinstance(ta, (int, float)) and isinstance(eq, (int, float)) and tl.get("number") != ta - eq:
+            fields["bs_total_liabilities"] = {
+                "text": None, "number": ta - eq, "confidence": 1.0,
+                "page": (fields.get("bs_total_assets") or {}).get("page"),
+            }
     elif kind == "cre_property":
         fields = llm_json(
             "You are a CRE credit analyst reading an offering memorandum (pages marked '=== PAGE n ==='). "
