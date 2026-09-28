@@ -9,16 +9,9 @@ import { Ico } from './Icons'
 import { supabase, Org } from './supabase'
 import { toast } from './dialogs'
 import { Boundary } from './ErrorBoundary'
+import { PackageView, ScreenDoc, missingCount } from './PackageView'
 
-type Doc = {
-  id: string
-  name: string
-  status: 'staged' | 'running' | 'done' | 'error'
-  step: number
-  deal?: DealSheet
-  err?: string
-  file?: File | null
-}
+type Doc = ScreenDoc
 
 const fmt = (f: Field | undefined, kind?: string) => {
   if (!f || (f.text == null && f.number == null)) return null
@@ -52,6 +45,7 @@ const headline = (deal?: DealSheet) => {
 export default function Screener({ org }: { org: Org | null }) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [policy, setPolicy] = useState<Policy>(DEFAULT_POLICY)
+  const [amount, setAmount] = useState<number | null>(null)
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const busy = docs.some(d => d.status === 'running')
@@ -98,6 +92,13 @@ export default function Screener({ org }: { org: Org | null }) {
   const done = docs.filter(d => d.status === 'done')
   const stagedN = docs.filter(d => d.status === 'staged').length
   const primary = done.find(d => isPrimary(d.deal))
+  const runningD = docs.find(d => d.status === 'running')
+  const pkgDeals = done.map(d => d.deal!).filter(Boolean)
+  // Business/personal packages get the consolidated package view; a lone OM keeps the property track.
+  const hasBiz = pkgDeals.some(d => d.kind && d.kind !== 'cre_property')
+  const missN = hasBiz ? missingCount(pkgDeals) : 0
+  const progress = docs.length ? (done.length + (runningD ? (runningD.step + 1) / STEPS.length : 0)) / docs.length : 0
+  const remaining = docs.length - done.length - docs.filter(d => d.status === 'error').length
 
   return (
     <>
@@ -145,9 +146,13 @@ export default function Screener({ org }: { org: Org | null }) {
 
           <div className="grid" style={{ marginBottom: 20 }}>
             <div className="uw-head">
-              <span><b>Screening package</b> <span className="small">
-                {stagedN > 0 ? `${stagedN} staged — add everything, then start` : `${done.length} of ${docs.length} document${docs.length === 1 ? '' : 's'} processed`}
-              </span></span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <b>Screening package</b>
+                <span className="status s-green">{done.length} read</span>
+                {(busy || stagedN > 0) && <span className="status s-gray">{busy ? `${(runningD ? 1 : 0) + stagedN} in progress` : `${stagedN} staged`}</span>}
+                {missN > 0 && <span className="status s-amber">{missN} missing</span>}
+                {stagedN > 0 && !busy && <span className="small">add everything, then start</span>}
+              </span>
               <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <input ref={input} type="file" accept="application/pdf,image/*" multiple hidden
                   onChange={e => e.target.files?.length && stageFiles(Array.from(e.target.files))} />
@@ -160,14 +165,26 @@ export default function Screener({ org }: { org: Org | null }) {
                 <button className="btn-light" onClick={() => setDocs([])} disabled={busy}>Start over</button>
               </span>
             </div>
+            {busy && (
+              <div className="pv-progress">
+                <span className="small"><b>{done.length} of {docs.length}</b> · about {Math.max(remaining * 2, 1)} min left · keep this tab open</span>
+                <span className="small" style={{ marginLeft: 'auto' }}>{STEPS.join(' → ')}</span>
+                <div className="pv-bar"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+              </div>
+            )}
             <table><tbody>
               {docs.map(d => (
                 <tr key={d.id}>
                   <td className="mono small ellipsis" title={d.name}>{d.name}</td>
                   <td>
-                    {d.status === 'staged' && <span className="status s-gray">Staged — not started</span>}
+                    {d.status === 'staged' && <span className="status s-gray">{busy ? 'waiting' : 'Staged — not started'}</span>}
                     {d.status === 'done' && <span className="pill">{kindLabel(d.deal)}</span>}
-                    {d.status === 'running' && <span className="small"><span className="spin" /> {STEPS[d.step]}…</span>}
+                    {d.status === 'running' && (
+                      <span className="small" style={{ display: 'inline-flex', flexDirection: 'column', gap: 4 }}>
+                        <span><span className="spin" /> {STEPS[d.step]}…</span>
+                        <span className="pv-bar pv-bar-mini"><span style={{ width: `${((d.step + 1) / STEPS.length) * 100}%` }} /></span>
+                      </span>
+                    )}
                     {d.status === 'error' && <span className="status s-red"><Ico.x /> {d.err}</span>}
                   </td>
                   <td className="small">{d.status === 'done' ? headline(d.deal) : ''}</td>
@@ -180,16 +197,25 @@ export default function Screener({ org }: { org: Org | null }) {
             </tbody></table>
           </div>
 
-          {primary?.deal && (
-            <Boundary label="Underwriting"><Underwriting deal={primary.deal} policy={policy} setPolicy={setPolicy} /></Boundary>
+          {hasBiz ? (
+            <Boundary label="Package view">
+              <PackageView docs={docs} policy={policy} setPolicy={setPolicy} amount={amount} setAmount={setAmount} />
+            </Boundary>
+          ) : (
+            primary?.deal && (
+              <Boundary label="Underwriting"><Underwriting deal={primary.deal} policy={policy} setPolicy={setPolicy} /></Boundary>
+            )
           )}
 
           {done.length > 0 && (
             <Boundary label="Package summary"><PackageActions docs={done.map(d => d.deal!)} org={org} policy={policy} /></Boundary>
           )}
 
+          {done.length > 0 && hasBiz && (
+            <div className="small" style={{ margin: '4px 2px 10px' }}>Full extraction, document by document — collapsed until you open one:</div>
+          )}
           {done.map(d => (
-            <Boundary key={d.id} label={d.name}><DocCard name={d.name} deal={d.deal!} /></Boundary>
+            <Boundary key={d.id} label={d.name}><DocCard name={d.name} deal={d.deal!} startOpen={!hasBiz} /></Boundary>
           ))}
         </>
       )}
@@ -325,8 +351,8 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
 }
 
 // ——— One extracted document, rendered by its kind ———
-function DocCard({ name, deal }: { name: string; deal: DealSheet }) {
-  const [open, setOpen] = useState(true)
+function DocCard({ name, deal, startOpen = true }: { name: string; deal: DealSheet; startOpen?: boolean }) {
+  const [open, setOpen] = useState(startOpen)
   const kind = deal.kind ?? 'cre_property'
   const sections: { title: string; defs: { key: string; label: string; fmt?: string }[] }[] =
     kind === 'operating_company'

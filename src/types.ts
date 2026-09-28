@@ -59,7 +59,7 @@ export const SECTIONS: Section[] = ['Property', 'Rent Roll & Occupancy', 'Income
 
 // ——— Operating-company track: a business (practice) and its spread, not a building ———
 
-export type BizSection = 'Company' | 'Financials — latest year' | 'Prior year' | 'Loan Request' | 'Guarantors'
+export type BizSection = 'Company' | 'Financials — latest year' | 'Income statement detail' | 'Balance sheet (Schedule L)' | 'Prior year' | 'Loan Request' | 'Guarantors'
 export type BizFieldDef = { key: string; label: string; section: BizSection; fmt?: 'money' | 'pct' | 'num' | 'x' | 'text' }
 
 export const BIZ_FIELD_DEFS: BizFieldDef[] = [
@@ -83,6 +83,28 @@ export const BIZ_FIELD_DEFS: BizFieldDef[] = [
   { key: 'distributions', label: 'Distributions', section: 'Financials — latest year', fmt: 'money' },
   { key: 'total_debt', label: 'Total debt', section: 'Financials — latest year', fmt: 'money' },
   { key: 'tangible_net_worth', label: 'Tangible net worth', section: 'Financials — latest year', fmt: 'money' },
+  { key: 'returns_allowances', label: 'Returns & allowances', section: 'Income statement detail', fmt: 'money' },
+  { key: 'gross_profit', label: 'Gross profit', section: 'Income statement detail', fmt: 'money' },
+  { key: 'salaries_wages', label: 'Salaries & wages', section: 'Income statement detail', fmt: 'money' },
+  { key: 'repairs_maintenance', label: 'Repairs & maintenance', section: 'Income statement detail', fmt: 'money' },
+  { key: 'rents', label: 'Rents', section: 'Income statement detail', fmt: 'money' },
+  { key: 'taxes_licenses', label: 'Taxes & licenses', section: 'Income statement detail', fmt: 'money' },
+  { key: 'advertising', label: 'Advertising', section: 'Income statement detail', fmt: 'money' },
+  { key: 'other_deductions', label: 'Other deductions', section: 'Income statement detail', fmt: 'money' },
+  { key: 'total_deductions', label: 'Total deductions', section: 'Income statement detail', fmt: 'money' },
+  { key: 'bs_cash', label: 'Cash', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_accounts_receivable', label: 'Accounts receivable', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_inventory', label: 'Inventory', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_other_current_assets', label: 'Other current assets', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_fixed_assets_net', label: 'Buildings & equipment, net', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_other_assets', label: 'Other assets', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_total_assets', label: 'Total assets', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_accounts_payable', label: 'Accounts payable', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_current_ltd', label: 'Current portion, LTD', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_long_term_debt', label: 'Long-term debt', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_other_liabilities', label: 'Other liabilities', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_total_liabilities', label: 'Total liabilities', section: 'Balance sheet (Schedule L)', fmt: 'money' },
+  { key: 'bs_equity', label: 'Equity / tangible net worth', section: 'Balance sheet (Schedule L)', fmt: 'money' },
   { key: 'period_prior', label: 'Period', section: 'Prior year' },
   { key: 'revenue_prior', label: 'Revenue', section: 'Prior year', fmt: 'money' },
   { key: 'ebitda_prior', label: 'EBITDA', section: 'Prior year', fmt: 'money' },
@@ -98,7 +120,45 @@ export const BIZ_FIELD_DEFS: BizFieldDef[] = [
   { key: 'guarantor_liquidity', label: 'Guarantor liquidity', section: 'Guarantors', fmt: 'money' },
 ]
 
-export const SECTIONS_BIZ: BizSection[] = ['Company', 'Financials — latest year', 'Prior year', 'Loan Request', 'Guarantors']
+export const SECTIONS_BIZ: BizSection[] = ['Company', 'Financials — latest year', 'Income statement detail', 'Balance sheet (Schedule L)', 'Prior year', 'Loan Request', 'Guarantors']
+
+// ——— Package spread: the two statements as ordered lines, years as columns ———
+// `line` is the IRS form line so an underwriter can tie every row to the return.
+export type SpreadLine = { key: string; label: string; line?: string; total?: boolean; deduct?: boolean; computed?: boolean }
+export const IS_LINES: SpreadLine[] = [
+  { key: 'revenue', label: 'Gross receipts', line: '1a' },
+  { key: 'returns_allowances', label: 'Returns & allowances', line: '1b', deduct: true },
+  { key: 'cogs', label: 'Cost of goods sold', line: '2', deduct: true },
+  { key: 'gross_profit', label: 'Gross profit', line: '3', total: true },
+  { key: 'officer_comp', label: 'Officer compensation', line: '7 · 1125-E', deduct: true },
+  { key: 'salaries_wages', label: 'Salaries & wages', line: '8', deduct: true },
+  { key: 'repairs_maintenance', label: 'Repairs & maintenance', line: '9', deduct: true },
+  { key: 'rents', label: 'Rents', line: '11', deduct: true },
+  { key: 'taxes_licenses', label: 'Taxes & licenses', line: '12', deduct: true },
+  { key: 'interest_expense', label: 'Interest expense', line: '13', deduct: true },
+  { key: 'depreciation', label: 'Depreciation', line: '14', deduct: true },
+  { key: 'advertising', label: 'Advertising', line: '16', deduct: true },
+  { key: 'other_deductions', label: 'Other deductions', line: '19', deduct: true },
+  { key: 'total_deductions', label: 'Total deductions', line: '20', total: true, deduct: true },
+  { key: 'net_income', label: 'Ordinary income', line: '21', total: true },
+  { key: 'ebitda', label: 'EBITDA', line: 'computed', total: true, computed: true },
+  { key: 'distributions', label: 'Distributions', line: 'Sch K · 16d', deduct: true },
+]
+export const BS_LINES: SpreadLine[] = [
+  { key: 'bs_cash', label: 'Cash' },
+  { key: 'bs_accounts_receivable', label: 'Accounts receivable' },
+  { key: 'bs_inventory', label: 'Inventory' },
+  { key: 'bs_other_current_assets', label: 'Other current assets' },
+  { key: 'bs_fixed_assets_net', label: 'Buildings & equipment, net' },
+  { key: 'bs_other_assets', label: 'Other assets' },
+  { key: 'bs_total_assets', label: 'Total assets', total: true },
+  { key: 'bs_accounts_payable', label: 'Accounts payable' },
+  { key: 'bs_current_ltd', label: 'Current portion, LTD' },
+  { key: 'bs_long_term_debt', label: 'Long-term debt' },
+  { key: 'bs_other_liabilities', label: 'Other liabilities' },
+  { key: 'bs_total_liabilities', label: 'Total liabilities', total: true },
+  { key: 'bs_equity', label: 'Equity / tangible net worth', total: true },
+]
 
 // ——— The rest of a screening package: one flat section per document kind ———
 

@@ -43,6 +43,16 @@ OCR_MODEL = os.environ.get("OCR_MODEL", "Unlimited-OCR")
 # Unlimited-OCR is trained on this exact phrase; generic vision models (e.g. qwen2.5vl
 # on Ollama) need an explicit transcription instruction instead.
 OCR_PROMPT = os.environ.get("OCR_PROMPT", "Multi page parsing.")
+# Last-ditch prompt for pages that trip the model's repeat-abort (dense IRS form
+# grids — 1120-S page 1 is the canonical offender): plain lines, no tables, and
+# an explicit instruction to collapse the leader runs that start the loop.
+OCR_PROMPT_PLAIN = os.environ.get(
+    "OCR_PROMPT_PLAIN",
+    "Transcribe every piece of text on this page as plain lines, top to bottom. "
+    "Write each label and its value on one line. Collapse any run of repeated dots, "
+    "dashes, underscores or box-drawing characters into a single space. "
+    "No tables, no markdown formatting, never repeat a line.",
+)
 # Pages per OCR call. Unlimited-OCR handles 8 and emits its own page structure; small
 # VLMs do best with 1 — the gateway then stamps an exact '=== PAGE n ===' per page,
 # which is what gives extractions their page citations.
@@ -171,6 +181,14 @@ def pdf_to_pngs(data: bytes, dpi: int = 200, max_pages: int = 60) -> List[bytes]
     return pages
 
 
+def pdf_page_png(data: bytes, index: int, dpi: int) -> bytes:
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=data, filetype="pdf")
+    png = doc[index].get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72)).tobytes("png")
+    doc.close()
+    return png
+
+
 def ocr(data: bytes, filename: str, first_page_only: bool = False) -> str:
     """Any file -> markdown text with === PAGE n === markers."""
     if MOCK:
@@ -190,15 +208,31 @@ def ocr(data: bytes, filename: str, first_page_only: bool = False) -> str:
         ]
         try:
             text = _ocr_call(content, temperature=0)
-        except httpx.HTTPStatusError:
+        except httpx.HTTPStatusError as first_err:
             # Greedy decoding can lock onto repeated glyph runs (leader dots, table
-            # borders, underscore fill-ins) and trip Ollama's repeat-abort guard.
-            # A little temperature breaks the loop; a page that still fails is
-            # skipped rather than failing the whole document.
-            try:
-                text = _ocr_call(content, temperature=0.4)
-            except httpx.HTTPStatusError as e:
-                text = f"[pages {i + 1}-{i + len(batch)} unreadable — OCR aborted ({e.response.status_code})]"
+            # borders, underscore fill-ins — 1120-S page 1 is the canonical case)
+            # and trip Ollama's repeat-abort guard. Ladder of escapes, each changing
+            # the token stream: warmer decode → plain-transcription prompt → the
+            # same page re-rendered at lower DPI. Only then is the page skipped.
+            text, last_err = None, first_err
+            images = content[1:]
+            attempts: List[tuple] = [
+                (OCR_PROMPT, images, 0.4),
+                (OCR_PROMPT_PLAIN, images, 0.6),
+            ]
+            if filename.lower().endswith(".pdf") and len(batch) == 1:
+                low = pdf_page_png(data, i, dpi=max(OCR_DPI - 60, 120))
+                attempts.append((OCR_PROMPT_PLAIN, [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(low).decode()}}
+                ], 0.4))
+            for prompt, imgs, temp in attempts:
+                try:
+                    text = _ocr_call([{"type": "text", "text": prompt}] + imgs, temperature=temp)
+                    break
+                except httpx.HTTPStatusError as e:
+                    last_err = e
+            if text is None:
+                text = f"[pages {i + 1}-{i + len(batch)} unreadable — OCR aborted ({last_err.response.status_code})]"
         label = f"=== PAGE {i + 1} ===" if len(batch) == 1 else f"=== PAGE {i + 1}–{i + len(batch)} ==="
         chunks.append(label + "\n" + text)
     out = "\n".join(chunks)
@@ -587,6 +621,13 @@ BIZ_FIELD_KEYS = [
     "company_name", "entity_type", "industry", "address", "year_founded", "locations", "owners", "employee_count",
     "period_latest", "revenue", "cogs", "operating_expenses", "officer_comp", "ebitda", "depreciation",
     "interest_expense", "net_income", "distributions", "total_debt", "tangible_net_worth",
+    # Full income statement (1120-S page 1 lines) — the package spread shows every line.
+    "returns_allowances", "gross_profit", "salaries_wages", "repairs_maintenance", "rents",
+    "taxes_licenses", "advertising", "other_deductions", "total_deductions",
+    # Balance sheet (Schedule L, END-of-year column).
+    "bs_cash", "bs_accounts_receivable", "bs_inventory", "bs_other_current_assets", "bs_fixed_assets_net",
+    "bs_other_assets", "bs_total_assets", "bs_accounts_payable", "bs_current_ltd", "bs_long_term_debt",
+    "bs_other_liabilities", "bs_total_liabilities", "bs_equity",
     "period_prior", "revenue_prior", "ebitda_prior", "net_income_prior",
     "loan_amount", "loan_purpose", "loan_term", "rate_request", "equity_injection", "collateral_offered",
     "guarantor", "guarantor_net_worth", "guarantor_liquidity",
@@ -692,8 +733,22 @@ async def extract_om(file: UploadFile = File(...)):  # noqa: C901
             "You are a commercial credit analyst spreading an operating company from its tax return, "
             "financial statements or acquisition package (pages marked '=== PAGE n ==='). "
             "Fill every field: text copied from the document; number normalized (dollars plain, percents "
-            "as fractions); page where found; confidence 0-1. On IRS forms: revenue = gross receipts line 1a/1c; "
-            "cogs = line 2; officer_comp = compensation of officers; address = the address block on page 1. "
+            "as fractions); page where found; confidence 0-1. On IRS forms (1120-S page 1): revenue = gross "
+            "receipts line 1a/1c; returns_allowances = line 1b; cogs = line 2; gross_profit = line 3; "
+            "officer_comp = compensation of officers line 7 (or Form 1125-E); salaries_wages = line 8; "
+            "repairs_maintenance = line 9; rents = line 11; taxes_licenses = line 12; interest_expense = line 13; "
+            "depreciation = line 14; advertising = line 16; other_deductions = line 19; total_deductions = line 20; "
+            "net_income = ordinary business income line 21; distributions = Schedule K line 16d; "
+            "address = the address block on page 1. "
+            "bs_* fields come from Schedule L, END-of-tax-year column (d): bs_cash = line 1; "
+            "bs_accounts_receivable = trade notes and accounts receivable (net); bs_inventory = inventories; "
+            "bs_other_current_assets = other current assets; bs_fixed_assets_net = buildings and other "
+            "depreciable assets LESS accumulated depreciation; bs_other_assets = other assets; "
+            "bs_total_assets = total assets; bs_accounts_payable = accounts payable; bs_current_ltd = "
+            "mortgages/notes payable in less than 1 year; bs_long_term_debt = mortgages/notes payable in 1 year "
+            "or more plus loans from shareholders; bs_other_liabilities = other liabilities; bs_total_liabilities "
+            "= total liabilities (total of the liability lines, excluding equity); bs_equity = capital stock + "
+            "paid-in capital + retained earnings (= tangible_net_worth). "
             "ebitda = operating income + depreciation if not stated; if only a combined 'total deductions' "
             "line exists, operating_expenses = total deductions - depreciation - interest expense, and "
             "ebitda = revenue - cogs - operating_expenses. '_prior' fields are the previous fiscal year when shown. "
