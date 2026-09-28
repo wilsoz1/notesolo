@@ -587,3 +587,8 @@ tr.ratio-row td { background: rgba(255, 255, 255, 0.02); color: var(--faint); }
 .chatpop .chat-msgs { max-height: min(46vh, 420px); }
 .chatpop .chat-sugs .f-chip { text-align: left; }
 @media (max-width: 640px) { .chatfab { right: 14px; bottom: 14px; } .chatpop { right: 14px; bottom: 72px; } }
+
+/* Slim drop strip: keeps drag-and-drop available once the package has documents */
+.drop.slim { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 13px; min-height: 0; margin-bottom: 20px; font-size: 13px; color: var(--sub); }
+.drop.slim svg { width: 15px; height: 15px; }
+.drop.slim:hover, .drop.slim.drag { color: var(--ink); }

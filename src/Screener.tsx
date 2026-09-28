@@ -130,6 +130,17 @@ export default function Screener({ org }: { org: Org | null }) {
 
       {docs.length > 0 && (
         <>
+          <div
+            className={`drop slim ${drag ? 'drag' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDrag(true) }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={onDrop}
+            onClick={() => input.current?.click()}
+            role="button" aria-label="Add more documents to the package"
+          >
+            <Ico.plus /> Drop more documents here — they stage until you start screening
+          </div>
+
           <div className="grid" style={{ marginBottom: 20 }}>
             <div className="uw-head">
               <span><b>Screening package</b> <span className="small">
