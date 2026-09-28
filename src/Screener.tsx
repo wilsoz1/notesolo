@@ -8,6 +8,7 @@ import { loans } from './data'
 import { Ico } from './Icons'
 import { supabase, Org } from './supabase'
 import { toast } from './dialogs'
+import { Boundary } from './ErrorBoundary'
 
 type Doc = {
   id: string
@@ -20,9 +21,10 @@ type Doc = {
 }
 
 const fmt = (f: Field | undefined, kind?: string) => {
-  if (!f || (f.text === null && f.number === null)) return null
+  if (!f || (f.text == null && f.number == null)) return null
   if (f.text) return f.text
-  const n = f.number as number
+  const n = f.number
+  if (typeof n !== 'number' || !isFinite(n)) return n == null ? null : String(n)
   if (kind === 'money') return `$${n.toLocaleString()}`
   if (kind === 'pct') return `${(n * 100).toFixed(1)}%`
   return n.toLocaleString()
@@ -34,7 +36,7 @@ const isPrimary = (deal?: DealSheet) => deal?.kind === 'operating_company' || de
 // One headline value per document for the package table.
 const headline = (deal?: DealSheet) => {
   if (!deal) return null
-  const g = (k: string, f?: string) => fmt(deal.fields[k], f)
+  const g = (k: string, f?: string) => fmt(deal.fields?.[k], f)
   switch (deal.kind) {
     case 'operating_company': return g('revenue', 'money') && `revenue ${g('revenue', 'money')} · EBITDA ${g('ebitda', 'money') ?? '—'}`
     case 'personal_tax_return': return g('total_income', 'money') && `total income ${g('total_income', 'money')}`
@@ -170,7 +172,7 @@ export default function Screener({ org }: { org: Org | null }) {
                   </td>
                   <td className="small">{d.status === 'done' ? headline(d.deal) : ''}</td>
                   <td className="num small">
-                    {d.status === 'done' && `${d.deal!.source.pages} pages`}
+                    {d.status === 'done' && `${d.deal?.source?.pages ?? '—'} pages`}
                     {d.status === 'staged' && <button className="linkish" onClick={() => removeStaged(d.id)}>Remove</button>}
                   </td>
                 </tr>
@@ -179,15 +181,15 @@ export default function Screener({ org }: { org: Org | null }) {
           </div>
 
           {primary?.deal && (
-            <Underwriting deal={primary.deal} policy={policy} setPolicy={setPolicy} />
+            <Boundary label="Underwriting"><Underwriting deal={primary.deal} policy={policy} setPolicy={setPolicy} /></Boundary>
           )}
 
           {done.length > 0 && (
-            <PackageActions docs={done.map(d => d.deal!)} org={org} policy={policy} />
+            <Boundary label="Package summary"><PackageActions docs={done.map(d => d.deal!)} org={org} policy={policy} /></Boundary>
           )}
 
           {done.map(d => (
-            <DocCard key={d.id} name={d.name} deal={d.deal!} />
+            <Boundary key={d.id} label={d.name}><DocCard name={d.name} deal={d.deal!} /></Boundary>
           ))}
         </>
       )}
@@ -331,13 +333,13 @@ function DocCard({ name, deal }: { name: string; deal: DealSheet }) {
       ? SECTIONS_BIZ.map(s => ({ title: s, defs: BIZ_FIELD_DEFS.filter(d => d.section === s) }))
       : kind === 'cre_property'
         ? SECTIONS.map(s => ({ title: s, defs: FIELD_DEFS.filter(d => d.section === s) }))
-        : [{ title: KIND_META[kind].label, defs: KIND_META[kind].defs }]
-  const lowConf = Object.values(deal.fields).filter(f => f.confidence < 0.9).length
+        : [{ title: KIND_META[kind]?.label ?? 'Document', defs: KIND_META[kind]?.defs ?? [] }]
+  const lowConf = Object.values(deal.fields ?? {}).filter(f => (f?.confidence ?? 1) < 0.9).length
 
   return (
     <div className="grid" style={{ marginBottom: 20 }}>
       <div className="uw-head">
-        <span><b>{KIND_META[kind]?.label ?? 'Document'}</b> <span className="small">{name} · {deal.source.pages} pages · {lowConf} below 90% confidence</span></span>
+        <span><b>{KIND_META[kind]?.label ?? 'Document'}</b> <span className="small">{name} · {deal.source?.pages ?? '—'} pages · {lowConf} below 90% confidence</span></span>
         <button className="linkish" onClick={() => setOpen(o => !o)}>{open ? 'Collapse' : 'Expand'}</button>
       </div>
       {open && (

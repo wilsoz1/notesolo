@@ -747,5 +747,18 @@ async def extract_om(file: UploadFile = File(...)):  # noqa: C901
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 _DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dist")
+
+
+class _FreshHtml(StaticFiles):
+    # index.html must revalidate on every load, or Chrome's heuristic caching
+    # keeps serving an OLD bundle after a rebuild — the user reloads and still
+    # runs stale, buggy code. Hashed /assets/* files are immutable and may cache.
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if not path.startswith("assets/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if os.path.isdir(_DIST):
-    app.mount("/", StaticFiles(directory=_DIST, html=True), name="app")
+    app.mount("/", _FreshHtml(directory=_DIST, html=True), name="app")
