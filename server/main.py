@@ -608,7 +608,14 @@ KIND_SCHEMAS = {k: field_schema(v["keys"]) for k, v in KIND_SPECS.items()}
 @app.post("/api/extract")
 async def extract_om(file: UploadFile = File(...)):
     data = await file.read()
-    text = ocr(data, file.filename or "memo.pdf")
+    try:
+        text = ocr(data, file.filename or "memo.pdf")
+    except HTTPException:
+        raise
+    except Exception:
+        # A raw crash loses CORS headers and reaches the browser as 'failed to fetch';
+        # a corrupt or non-PDF upload should read as exactly what it is.
+        raise HTTPException(422, "Could not read that file — is it a valid PDF or image scan?")
     n_pages = max(text.count("=== PAGE"), 1)
 
     # First decide what kind of document this is — that picks the spread.
