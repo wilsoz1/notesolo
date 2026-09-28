@@ -59,6 +59,18 @@ ORIGINS = os.environ.get(
 app = FastAPI(title="NoteSolo model gateway")
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
+
+@app.middleware("http")
+async def allow_private_network(request, call_next):
+    # Chrome's Private Network Access blocks a public https site (notesolo.com)
+    # from calling localhost unless the preflight answers with this header —
+    # without it the browser reports ERR_BLOCKED_BY_CLIENT and the screener
+    # looks dead. Safe here: CORS still restricts origins, auth still applies.
+    response = await call_next(request)
+    if request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 SPREAD_LINES = ["revenue", "cogs", "opex", "ebitda", "depreciation", "interest_expense",
                 "net_income", "distributions", "total_debt", "tangible_net_worth"]
 DOC_TYPES = ["Rent Roll", "Tax Return", "Personal Financial Statement", "Insurance Certificate",
@@ -606,7 +618,7 @@ KIND_SCHEMAS = {k: field_schema(v["keys"]) for k, v in KIND_SPECS.items()}
 
 
 @app.post("/api/extract")
-async def extract_om(file: UploadFile = File(...)):
+async def extract_om(file: UploadFile = File(...)):  # noqa: C901
     data = await file.read()
     try:
         text = ocr(data, file.filename or "memo.pdf")
@@ -687,3 +699,15 @@ async def extract_om(file: UploadFile = File(...)):
         except OSError:
             pass
     return result
+
+
+# ——— Same-origin app hosting ———
+# When ../dist exists (a `npm run build` output), the gateway serves the app itself
+# at http://localhost:8787/ — app and API on ONE origin, immune to the browser
+# policies (Private Network Access, mixed content) that can block a public site
+# from calling localhost. This is the recommended way to use NoteSolo locally.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dist")
+if os.path.isdir(_DIST):
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="app")

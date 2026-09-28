@@ -6,7 +6,10 @@ import { supabase, SPREAD_DOC_TYPES } from './supabase'
 const fromQuery = new URLSearchParams(window.location.search).get('api')
 if (fromQuery) localStorage.setItem('notesolo.api', fromQuery.replace(/\/$/, ''))
 export const API_URL: string | null =
-  localStorage.getItem('notesolo.api') || (import.meta.env.VITE_API_URL as string | undefined) || null
+  localStorage.getItem('notesolo.api')
+  || (import.meta.env.VITE_API_URL as string | undefined)
+  // Served by the gateway itself (http://localhost:8787): the API is same-origin.
+  || (window.location.port === '8787' ? window.location.origin : null)
 
 export const STEPS = ['Rendering pages', 'OCR — Unlimited-OCR', 'Extracting deal fields', 'Underwriting']
 
