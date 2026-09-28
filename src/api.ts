@@ -10,22 +10,42 @@ export const API_URL: string | null =
 
 export const STEPS = ['Rendering pages', 'OCR — Unlimited-OCR', 'Extracting deal fields', 'Underwriting']
 
+// Model work runs for minutes; without input the OS dims and sleeps the display
+// mid-wait ("the screen went dark"). Hold a screen wake lock while any AI call is
+// in flight — refcounted so overlapping calls share one lock.
+let wakeLock: { release: () => Promise<void> } | null = null
+let wakeHolds = 0
+async function holdAwake<T>(work: Promise<T>): Promise<T> {
+  wakeHolds++
+  if (wakeHolds === 1) {
+    try { wakeLock = await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request('screen') ?? null } catch { wakeLock = null }
+  }
+  try {
+    return await work
+  } finally {
+    wakeHolds--
+    if (wakeHolds === 0) { wakeLock?.release().catch(() => {}); wakeLock = null }
+  }
+}
+
 // ——— Model-gateway helpers (open-source stack on your GPU box; no-ops when the box is off) ———
 
 const gw = async (path: string, body: unknown): Promise<Record<string, unknown> | null> => {
   if (!API_URL) return null
   const token = (await supabase.auth.getSession()).data.session?.access_token
   if (!token) return null
-  try {
-    const res = await fetch(`${API_URL}${path}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return res.ok ? res.json() : null
-  } catch {
-    return null
-  }
+  return holdAwake((async () => {
+    try {
+      const res = await fetch(`${API_URL}${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      return res.ok ? res.json() : null
+    } catch {
+      return null
+    }
+  })())
 }
 
 export async function gatewayHealth(): Promise<'off' | 'mock' | 'up' | 'down'> {
@@ -72,10 +92,12 @@ export async function extractMemo(file: File | null, onStep: (i: number) => void
   const ticker = setTimeout(() => onStep(1), 1500)
   const ticker2 = setTimeout(() => onStep(2), 15000)
   try {
-    const res = await fetch(`${API_URL}/api/extract`, { method: 'POST', body })
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-    onStep(3)
-    return (await res.json()) as DealSheet
+    return await holdAwake((async () => {
+      const res = await fetch(`${API_URL}/api/extract`, { method: 'POST', body })
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+      onStep(3)
+      return (await res.json()) as DealSheet
+    })())
   } finally {
     clearTimeout(ticker); clearTimeout(ticker2)
   }
