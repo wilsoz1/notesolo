@@ -12,6 +12,7 @@ import { SignIn, Onboarding } from './Auth'
 import { useSession } from './useSession'
 import { supabase } from './supabase'
 import { DialogHost } from './dialogs'
+import { ChatBubble } from './Ai'
 import { Ico } from './Icons'
 
 const useHash = () => {
@@ -121,6 +122,7 @@ export default function App() {
           {app.loading ? <p className="subtitle">Loading…</p> : body}
         </div>
       </div>
+      {authed && app.org && <ChatBubble />}
       <DialogHost />
     </div>
   )

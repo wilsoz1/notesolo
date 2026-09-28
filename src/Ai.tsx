@@ -18,7 +18,24 @@ export const Md = ({ text }: { text: string }) => (
   </div>
 )
 
-// ——— Portfolio chat: conversational Q&A over the book, always visible ———
+// ——— Portfolio chat: a floating bubble on every app screen ———
+// The panel stays mounted while hidden, so the conversation (and any in-flight
+// question) survives opening, closing and navigating between pages.
+
+export function ChatBubble() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div className="chatpop" hidden={!open}><Chat /></div>
+      <button className="chatfab" aria-label={open ? 'Close portfolio chat' : 'Ask your portfolio'}
+        aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        {open ? <Ico.x /> : <Ico.chat />}
+      </button>
+    </>
+  )
+}
+
+// ——— Portfolio chat: conversational Q&A over the book ———
 
 type ChatMsg = { role: 'user' | 'assistant'; text: string; rows?: Record<string, unknown>[] }
 

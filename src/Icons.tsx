@@ -27,6 +27,7 @@ export const Ico = {
   star: () => <P d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" />,
   dots: () => <P d="M12 6h.01M12 12h.01M12 18h.01" />,
   chevron: () => <P d="M9 6l6 6-6 6" />,
+  chat: () => <P d="M21 12a8 8 0 01-8 8H4l-1 2v-10a9 9 0 019-9h1a8 8 0 018 9zM8 12h.01M12 12h.01M16 12h.01" />,
   logo: () => <P d="M4 12h6l2-4 4 8 2-4h2" strokeWidth="2.4" />,
   check: () => <P d="M5 12l5 5L20 7" strokeWidth="2.6" />,
   x: () => <P d="M6 6l12 12M18 6L6 18" strokeWidth="2.6" />,
