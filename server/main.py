@@ -21,11 +21,14 @@ SUPABASE_SERVICE_ROLE_KEY, ALLOWED_ORIGINS, MOCK=1 (no GPUs needed; canned model
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
 import os
 import re
+import subprocess
+import sys
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -70,6 +73,41 @@ async def allow_private_network(request, call_next):
     if request.method == "OPTIONS":
         response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
+
+
+# ——— Keep the Mac awake while models run ———
+# Extractions run for many minutes with no keyboard/mouse input, so macOS turns
+# the display off (displaysleep) and can then suspend the whole machine —
+# pausing Ollama mid-run. The browser's Screen Wake Lock only holds while the
+# NoteSolo tab is visible, so it fails the moment the user switches apps.
+# Instead the gateway holds an OS-level assertion (caffeinate -dis: display,
+# idle and system sleep) for exactly as long as any AI request is in flight.
+_caffeinate: subprocess.Popen | None = None
+_awake_holds = 0
+_awake_lock = asyncio.Lock()
+
+
+@app.middleware("http")
+async def hold_awake_during_ai(request, call_next):
+    global _caffeinate, _awake_holds
+    ai_call = request.method == "POST" and request.url.path.startswith("/api/")
+    if ai_call and sys.platform == "darwin":
+        async with _awake_lock:
+            _awake_holds += 1
+            if _awake_holds == 1:
+                try:
+                    _caffeinate = subprocess.Popen(["caffeinate", "-dis"])
+                except OSError:
+                    _caffeinate = None
+    try:
+        return await call_next(request)
+    finally:
+        if ai_call and sys.platform == "darwin":
+            async with _awake_lock:
+                _awake_holds -= 1
+                if _awake_holds == 0 and _caffeinate:
+                    _caffeinate.terminate()
+                    _caffeinate = None
 
 SPREAD_LINES = ["revenue", "cogs", "opex", "ebitda", "depreciation", "interest_expense",
                 "net_income", "distributions", "total_debt", "tangible_net_worth"]

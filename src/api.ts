@@ -18,11 +18,19 @@ export const STEPS = ['Rendering pages', 'OCR — Unlimited-OCR', 'Extracting de
 // in flight — refcounted so overlapping calls share one lock.
 let wakeLock: { release: () => Promise<void> } | null = null
 let wakeHolds = 0
+const requestWakeLock = async () => {
+  try { wakeLock = await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request('screen') ?? null } catch { wakeLock = null }
+}
+// The OS releases the lock whenever the tab is hidden; re-acquire on return
+// so switching apps mid-extraction doesn't leave the display unprotected.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || wakeHolds === 0) return
+  wakeLock?.release().catch(() => {}) // hidden tabs auto-release; drop the stale handle
+  void requestWakeLock()
+})
 async function holdAwake<T>(work: Promise<T>): Promise<T> {
   wakeHolds++
-  if (wakeHolds === 1) {
-    try { wakeLock = await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request('screen') ?? null } catch { wakeLock = null }
-  }
+  if (wakeHolds === 1) await requestWakeLock()
   try {
     return await work
   } finally {
