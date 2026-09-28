@@ -12,10 +12,11 @@ import { toast } from './dialogs'
 type Doc = {
   id: string
   name: string
-  status: 'running' | 'done' | 'error'
+  status: 'staged' | 'running' | 'done' | 'error'
   step: number
   deal?: DealSheet
   err?: string
+  file?: File | null
 }
 
 const fmt = (f: Field | undefined, kind?: string) => {
@@ -53,29 +54,47 @@ export default function Screener({ org }: { org: Org | null }) {
   const input = useRef<HTMLInputElement>(null)
   const busy = docs.some(d => d.status === 'running')
 
-  // Documents process one at a time — the models are a queue, and the package
-  // table shows each one moving through it.
-  const runFiles = async (files: (File | null)[], sample?: 'om' | 'tax_return') => {
-    for (const file of files) {
-      const id = crypto.randomUUID()
-      const name = file?.name ?? (sample === 'tax_return' ? 'Desert_Bloom_Dental_1120S_2026.pdf (sample)' : 'Mesa_Ridge_Dental_OM.pdf (sample)')
-      setDocs(ds => [...ds, { id, name, status: 'running', step: 0 }])
-      try {
-        const deal = await extractMemo(file, step => setDocs(ds => ds.map(d => (d.id === id ? { ...d, step } : d))), sample)
-        setDocs(ds => ds.map(d => (d.id === id ? { ...d, status: 'done', deal } : d)))
-      } catch (e) {
-        setDocs(ds => ds.map(d => (d.id === id ? { ...d, status: 'error', err: (e as Error).message } : d)))
-      }
+  // Dropping or picking files only STAGES them — nothing runs until the banker
+  // says the package is complete. Then documents process one at a time.
+  const stageFiles = (files: File[]) => {
+    setDocs(ds => [...ds, ...files.map(f => ({ id: crypto.randomUUID(), name: f.name, status: 'staged' as const, step: 0, file: f }))])
+  }
+
+  const processOne = async (doc: Doc, sample?: 'om' | 'tax_return') => {
+    setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'running', step: 0 } : d)))
+    try {
+      const deal = await extractMemo(doc.file ?? null, step => setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, step } : d))), sample)
+      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'done', deal, file: undefined } : d)))
+    } catch (e) {
+      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'error', err: (e as Error).message } : d)))
     }
   }
+
+  const startScreening = async () => {
+    // Snapshot the staged list up front; more files staged mid-run wait for the next start.
+    const staged = docs.filter(d => d.status === 'staged')
+    for (const doc of staged) await processOne(doc)
+  }
+
+  const runSample = async (sample: 'om' | 'tax_return') => {
+    const doc: Doc = {
+      id: crypto.randomUUID(), status: 'staged', step: 0, file: null,
+      name: sample === 'tax_return' ? 'Desert_Bloom_Dental_1120S_2026.pdf (sample)' : 'Mesa_Ridge_Dental_OM.pdf (sample)',
+    }
+    setDocs(ds => [...ds, doc])
+    await processOne(doc, sample)
+  }
+
+  const removeStaged = (id: string) => setDocs(ds => ds.filter(d => !(d.id === id && d.status === 'staged')))
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDrag(false)
     const files = Array.from(e.dataTransfer.files ?? [])
-    if (files.length) runFiles(files)
+    if (files.length) stageFiles(files)
   }
 
   const done = docs.filter(d => d.status === 'done')
+  const stagedN = docs.filter(d => d.status === 'staged').length
   const primary = done.find(d => isPrimary(d.deal))
 
   return (
@@ -97,14 +116,14 @@ export default function Screener({ org }: { org: Org | null }) {
           onClick={() => input.current?.click()}
         >
           <input ref={input} type="file" accept="application/pdf,image/*" multiple hidden
-            onChange={e => e.target.files?.length && runFiles(Array.from(e.target.files))} />
+            onChange={e => e.target.files?.length && stageFiles(Array.from(e.target.files))} />
           <div className="drop-icon"><Ico.doc /></div>
           <div className="drop-title">Drop the borrower's documents here</div>
-          <div className="drop-sub">PDFs or scans · several at once · each is classified and spread by type</div>
+          <div className="drop-sub">PDFs or scans · add the whole package first — nothing runs until you start screening</div>
           <div className="drop-actions">
             <button className="btn-dark" onClick={e => { e.stopPropagation(); input.current?.click() }}>Choose files <Ico.plus /></button>
-            <button className="btn-light" onClick={e => { e.stopPropagation(); runFiles([null], 'om') }}>Sample: property OM</button>
-            <button className="btn-light" onClick={e => { e.stopPropagation(); runFiles([null], 'tax_return') }}>Sample: practice tax return</button>
+            <button className="btn-light" onClick={e => { e.stopPropagation(); runSample('om') }}>Sample: property OM</button>
+            <button className="btn-light" onClick={e => { e.stopPropagation(); runSample('tax_return') }}>Sample: practice tax return</button>
           </div>
         </div>
       )}
@@ -113,11 +132,18 @@ export default function Screener({ org }: { org: Org | null }) {
         <>
           <div className="grid" style={{ marginBottom: 20 }}>
             <div className="uw-head">
-              <span><b>Screening package</b> <span className="small">{done.length} of {docs.length} document{docs.length === 1 ? '' : 's'} processed</span></span>
-              <span style={{ display: 'flex', gap: 8 }}>
+              <span><b>Screening package</b> <span className="small">
+                {stagedN > 0 ? `${stagedN} staged — add everything, then start` : `${done.length} of ${docs.length} document${docs.length === 1 ? '' : 's'} processed`}
+              </span></span>
+              <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <input ref={input} type="file" accept="application/pdf,image/*" multiple hidden
-                  onChange={e => e.target.files?.length && runFiles(Array.from(e.target.files))} />
+                  onChange={e => e.target.files?.length && stageFiles(Array.from(e.target.files))} />
                 <button className="btn-light" onClick={() => input.current?.click()} disabled={busy}><Ico.plus /> Add documents</button>
+                {stagedN > 0 && (
+                  <button className="btn-dark" onClick={startScreening} disabled={busy}>
+                    Start screening ({stagedN}) <Ico.chevron />
+                  </button>
+                )}
                 <button className="btn-light" onClick={() => setDocs([])} disabled={busy}>Start over</button>
               </span>
             </div>
@@ -126,12 +152,16 @@ export default function Screener({ org }: { org: Org | null }) {
                 <tr key={d.id}>
                   <td className="mono small ellipsis" title={d.name}>{d.name}</td>
                   <td>
+                    {d.status === 'staged' && <span className="status s-gray">Staged — not started</span>}
                     {d.status === 'done' && <span className="pill">{kindLabel(d.deal)}</span>}
                     {d.status === 'running' && <span className="small"><span className="spin" /> {STEPS[d.step]}…</span>}
                     {d.status === 'error' && <span className="status s-red"><Ico.x /> {d.err}</span>}
                   </td>
                   <td className="small">{d.status === 'done' ? headline(d.deal) : ''}</td>
-                  <td className="num small">{d.status === 'done' ? `${d.deal!.source.pages} pages` : ''}</td>
+                  <td className="num small">
+                    {d.status === 'done' && `${d.deal!.source.pages} pages`}
+                    {d.status === 'staged' && <button className="linkish" onClick={() => removeStaged(d.id)}>Remove</button>}
+                  </td>
                 </tr>
               ))}
             </tbody></table>

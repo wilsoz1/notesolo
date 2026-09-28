@@ -90,7 +90,7 @@ function buildPdfHtml(org: Org, loan: DbLoan, guarantors: Guarantor[], modType: 
 }
 
 // Print via a hidden same-page iframe — immune to pop-up blockers.
-function printHtml(html: string) {
+export function printHtml(html: string) {
   const frame = document.createElement('iframe')
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
   frame.srcdoc = html

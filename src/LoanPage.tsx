@@ -8,6 +8,7 @@ import { confirmDialog, promptDialog, toast, currentUserName, Skeleton } from '.
 import { DraftButton } from './Ai'
 import { ModifyButton } from './Modify'
 import { PortalCard } from './Portal'
+import { AnnualReviewCard } from './AnnualReview'
 import { Ico } from './Icons'
 
 const shareUrl = (token: string) => `${window.location.origin}/#/share/${token}`
@@ -203,7 +204,10 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
       {tab === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} spreads={spreads} />}
       {tab === 'Payments' && <PaymentsTab loan={loan} payments={payments} />}
       {tab === 'Spreads' && <SpreadsTab loan={loan} spreads={spreads} onChange={load} />}
-      {tab === 'Compliance' && <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />}
+      {tab === 'Compliance' && <>
+        <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
+        <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
+      </>}
       {tab === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
       {tab === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
       {tab === 'Activity' && <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />}
