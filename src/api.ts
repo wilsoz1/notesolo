@@ -80,12 +80,18 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 /** Runs the pipeline; `onStep` is called as each stage begins (0-based).
  *  `sample` replays a bundled deal (works with or without an API configured). */
 export async function extractMemo(file: File | null, onStep: (i: number) => void, sample?: 'om' | 'tax_return'): Promise<DealSheet> {
-  if (!API_URL || !file || sample) {
+  if (sample || (!API_URL && !file)) {
     // Demo mode — replay a bundled sample with realistic pacing.
     const deal = sample === 'tax_return' ? SAMPLE_BIZ_DEAL : SAMPLE_DEAL
     for (let i = 0; i < STEPS.length; i++) { onStep(i); await wait(i === 1 ? 1800 : 900) }
     return { ...deal, source: { ...deal.source, filename: file?.name ?? deal.source.filename } }
   }
+  if (!API_URL) {
+    // A real document with no gateway used to silently replay SAMPLE data —
+    // which reads as "the screener is broken." Say what's actually needed.
+    throw new Error('No AI gateway connected — open notesolo.com/?api=http://localhost:8787 once in Chrome (with server/run-local.sh running), then screen again. The sample buttons work without it.')
+  }
+  if (!file) throw new Error('No file attached to this document — remove it and stage it again.')
   onStep(0)
   const body = new FormData()
   body.append('file', file)
