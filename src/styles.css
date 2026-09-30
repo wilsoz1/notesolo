@@ -765,9 +765,9 @@ a.rp-stat:hover { background: #fbfaf8; }
 .rp-card .task-group { padding: 12px 18px 4px; }
 .rp-card .feed-row { padding: 9px 18px; }
 
-/* The whole app shell renders at the density the user dials in with 80% browser
-   zoom — baked in, so 100% zoom IS that look. (zoom scales type + spacing together.) */
-.shell { zoom: 0.8; }
+/* The MAIN content renders at the density of 80% browser zoom — baked in — while
+   the sidebar stays at 100%. (zoom scales type + spacing together.) */
+.shell .main { zoom: 0.8; }
 
 .rp-stat .n { font-size: 12px; color: var(--sub); margin-top: 2px; }
 .rp-stat .n.ok { color: var(--green); }
