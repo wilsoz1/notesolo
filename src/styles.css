@@ -428,10 +428,10 @@ button.tile { font: inherit; text-align: left; cursor: pointer; }
 body { background: var(--bg); font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
 /* Shell */
-.shell { background: #f8f7f4; } .pub { background: var(--bg); }
-.side { background: #f3f2ee; border-right: 1px solid #e9e7e1; }
+.shell, .pub { background: var(--bg); }
+.side { background: #fafafb; border-right: 1px solid var(--line); }
 .side a:not(.side-logo):hover { background: var(--hover); }
-.side a.on { background: #e7e5df; color: var(--ink); font-weight: 600; }
+.side a.on { background: #ececf1; color: var(--ink); font-weight: 600; }
 .side-foot { border-top: 1px solid var(--line); }
 .appbar { border-bottom: 1px solid var(--line); }
 .topbar { border-bottom: 1px solid var(--line); }
@@ -670,7 +670,7 @@ tr.ratio-row td { background: #fafbfc; color: var(--faint); }
 .side-group { padding: 18px 9px 5px; font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; }
 .side-group .plus { margin-left: auto; color: var(--faint); font-weight: 400; font-size: 14px; }
 .sv-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.side .gsearch { margin: 2px 0 10px; background: #ffffff; border-color: #e3e1da; }
+.side .gsearch { margin: 2px 0 10px; background: #ffffff; }
 .side .gsearch input { width: 100%; min-width: 0; }
 .side .gsearch-pop { left: 0; right: auto; width: 320px; }
 .side-foot { margin-top: auto; padding-top: 12px; }
@@ -744,11 +744,11 @@ tr.ratio-row td { background: #fafbfc; color: var(--faint); }
 /* ═══════════════ Ramp-style home: stat strip + insight cards on a warm ground ═══════════════ */
 .rp-eyebrow { font-size: 13px; color: var(--sub); margin-bottom: 4px; }
 .rp-h1 { margin: 0 0 20px; font-size: 28px; font-weight: 650; letter-spacing: -0.02em; display: flex; align-items: center; gap: 12px; }
-.rp-card { background: #ffffff; border: 1px solid #e8e6e0; border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+.rp-card { background: #ffffff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
 .rp-card-h { display: flex; align-items: baseline; gap: 8px; padding: 14px 18px 0; }
 .rp-card-h b { font-size: 14.5px; font-weight: 650; }
 .rp-card-b { padding: 6px 18px 14px; }
-.rp-strip { display: flex; background: #ffffff; border: 1px solid #e8e6e0; border-radius: 14px; margin-bottom: 16px; }
+.rp-strip { display: flex; background: #ffffff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; }
 .rp-stat { flex: 1; padding: 16px 20px; border-right: 1px solid var(--line-2); text-decoration: none; color: inherit; }
 .rp-stat:last-child { border-right: none; }
 .rp-stat .l { font-size: 12.5px; color: var(--sub); display: flex; align-items: center; gap: 5px; }
@@ -764,16 +764,11 @@ a.rp-stat:hover { background: #fbfaf8; }
 .rp-card .task-row { padding: 9px 18px; }
 .rp-card .task-group { padding: 12px 18px 4px; }
 .rp-card .feed-row { padding: 9px 18px; }
-.hm-rail .prof, .hm-rail .rr-card { border-color: #e8e6e0; }
 
 /* The whole app shell renders at the density the user dials in with 80% browser
    zoom — baked in, so 100% zoom IS that look. (zoom scales type + spacing together.) */
 .shell { zoom: 0.8; }
 
-/* Cards everywhere: every .grid table/panel takes the home page's card treatment */
-.shell .grid { border-color: #e8e6e0; border-radius: 12px; background: #ffffff; }
-.shell .drop { border-color: #d8d4ca; background: #ffffff; }
-.shell .viewbar { background: transparent; }
 .rp-stat .n { font-size: 12px; color: var(--sub); margin-top: 2px; }
 .rp-stat .n.ok { color: var(--green); }
 .rp-stat .n.bad { color: var(--red); }

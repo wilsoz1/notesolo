@@ -269,81 +269,61 @@ export default function Dashboard({ org }: { org: Org }) {
   return (
     <div className="hm">
       <div className="hm-main">
-        <div className="rp-eyebrow">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · {org.name}</div>
-        <h1 className="rp-h1">
+        <div className="crumbs2"><a href="#/app">{org.name}</a> / Home</div>
+        <h1 className="hm-h1">
           {greeting}
-          <span className="spacer" />
-          <a className="btn-dark" href="#/app/screener" style={{ textDecoration: 'none', fontSize: 13 }}>Screen a package <Ico.chevron /></a>
+          <span className="small">
+            {items === null ? 'pulling your book together…'
+              : items.length === 0 ? 'nothing needs you — the book is clean'
+              : `${items.length} task${items.length > 1 ? 's' : ''} need a human`}
+          </span>
         </h1>
 
-        <div className="rp-strip">
-          <span className="rp-stat"><span className="l"><Ico.check /> Open tasks</span><span className="v">{items?.length ?? '—'}</span></span>
-          <span className="rp-stat"><span className="l"><Ico.clock /> Past due</span><span className="v" style={pastDueNow ? { color: 'var(--red)' } : undefined}>{pastDueNow ? fmtShort(pastDueNow) : '$0'}</span></span>
-          <span className="rp-stat"><span className="l"><Ico.doc /> Reviews due</span><span className="v">{reviewsDue}</span></span>
-          <span className="rp-stat"><span className="l"><Ico.status /> Covenants failing</span><span className="v">{covFail}</span></span>
+        <div className="hm-sec">
+          <b>Committed exposure</b>
+          <span className="small">{money(expNow)}{expDelta !== null && expDelta > 0 ? ` · ▲ ${expDelta.toFixed(1)}% vs. a year ago` : ''}</span>
+          <span className="spacer" />
+          <span className="small">12 months</span>
         </div>
+        <TrendChart series={exposureSeries} prior={priorSeries} labels={months} />
 
-        <div className="rp-card">
-          <div className="rp-card-h">
-            <b>Committed exposure</b>
-            <span className="rp-legend">
-              <span><span className="sw" />This year</span>
-              <span><span className="sw prior" />Last year</span>
-              <span>12 months</span>
-            </span>
-          </div>
-          <div className="rp-big-row">
-            <span className="rp-big">{money(expNow)}</span>
-            {expDelta !== null && expDelta > 0 && <span className="delta-pill">▲ {expDelta.toFixed(1)}%</span>}
-          </div>
-          <div className="rp-card-b">
-            <TrendChart series={exposureSeries} prior={priorSeries} labels={months} />
-          </div>
+        <div className="hm-sec">
+          <b>Tasks</b>
+          <span className="small">what needs a human — the agents queued these</span>
+          <span className="spacer" />
+          <a className="btn-dark" href="#/app/screener" style={{ textDecoration: 'none' }}>Screen a package <Ico.chevron /></a>
         </div>
-
-        <div className="rp-card">
-          <div className="rp-card-h" style={{ paddingBottom: 6 }}>
-            <b>Tasks</b>
-            <span className="small">what needs a human — the agents queued these</span>
-          </div>
-          {items === null ? <div style={{ padding: '0 18px 14px' }}><Skeleton rows={5} /></div> : items.length === 0 ? (
-            <p className="small" style={{ padding: '4px 18px 16px' }}><Ico.check /> All clear. Payments current, covenants passing, reporting up to date.</p>
-          ) : (
-            <div style={{ paddingBottom: 8 }}>
-              {GROUPS.map(gr => {
-                const group = items.filter(it => it.chip === gr.chip)
-                if (!group.length) return null
-                return (
-                  <div key={gr.chip}>
-                    <div className="task-group">{gr.label}</div>
-                    {group.map((it, i) => (
-                      <div className="task-row" key={i}>
-                        <button className="task-check" aria-label="Mark handled" onClick={() => dismiss(it)} />
-                        <span className="t"><a href={it.href}>{it.text.split(' — ')[0]}</a>{it.text.includes(' — ') ? ` — ${it.text.split(' — ').slice(1).join(' — ')}` : ''}{it.who && <span className="small"> · {it.who}</span>}</span>
-                        <span className="task-tag" style={{ background: TAGS[it.chip]?.bg, color: TAGS[it.chip]?.fg }}>{it.chip}</span>
-                        <span className="task-when"><Ico.clock /> {it.when ? fmtDay(it.when) : it.sev === 0 ? 'now' : it.sev === 1 ? 'this week' : 'when free'}</span>
-                      </div>
-                    ))}
+        {items === null ? <Skeleton rows={5} /> : items.length === 0 ? (
+          <p className="small" style={{ padding: '14px 2px' }}><Ico.check /> All clear. Payments current, covenants passing, reporting up to date.</p>
+        ) : (
+          GROUPS.map(gr => {
+            const group = items.filter(it => it.chip === gr.chip)
+            if (!group.length) return null
+            return (
+              <div key={gr.chip}>
+                <div className="task-group">{gr.label}</div>
+                {group.map((it, i) => (
+                  <div className="task-row" key={i}>
+                    <button className="task-check" aria-label="Mark handled" onClick={() => dismiss(it)} />
+                    <span className="t"><a href={it.href}>{it.text.split(' — ')[0]}</a>{it.text.includes(' — ') ? ` — ${it.text.split(' — ').slice(1).join(' — ')}` : ''}{it.who && <span className="small"> · {it.who}</span>}</span>
+                    <span className="task-tag" style={{ background: TAGS[it.chip]?.bg, color: TAGS[it.chip]?.fg }}>{it.chip}</span>
+                    <span className="task-when"><Ico.clock /> {it.when ? fmtDay(it.when) : it.sev === 0 ? 'now' : it.sev === 1 ? 'this week' : 'when free'}</span>
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="rp-card">
-          <div className="rp-card-h" style={{ paddingBottom: 6 }}><b>Activity</b><span className="small">what the agents completed</span></div>
-          {feed.length === 0 && <p className="small" style={{ padding: '4px 18px 16px' }}>Nothing yet — screen a package or upload documents and the agents get to work.</p>}
-          <div style={{ paddingBottom: 8 }}>
-            {feed.map((fi, i) => (
-              <div className="feed-row" key={i}>
-                <span className={`feed-ic ${fi.icon}`}>{fi.icon === 'ok' ? <Ico.check /> : fi.icon === 'doc' ? <Ico.doc /> : <Ico.logo />}</span>
-                <span className="ellipsis">{fi.href ? <a className="cell-link" href={fi.href}>{fi.text}</a> : fi.text}</span>
-                <span className="when">{fmtAgo(fi.on)}</span>
+                ))}
               </div>
-            ))}
+            )
+          })
+        )}
+
+        <div className="hm-sec"><b>Activity</b><span className="small">what the agents completed</span></div>
+        {feed.length === 0 && <p className="small" style={{ padding: '10px 2px' }}>Nothing yet — screen a package or upload documents and the agents get to work.</p>}
+        {feed.map((fi, i) => (
+          <div className="feed-row" key={i}>
+            <span className={`feed-ic ${fi.icon}`}>{fi.icon === 'ok' ? <Ico.check /> : fi.icon === 'doc' ? <Ico.doc /> : <Ico.logo />}</span>
+            <span className="ellipsis">{fi.href ? <a className="cell-link" href={fi.href}>{fi.text}</a> : fi.text}</span>
+            <span className="when">{fmtAgo(fi.on)}</span>
           </div>
-        </div>
+        ))}
       </div>
 
       <aside className="hm-rail">
