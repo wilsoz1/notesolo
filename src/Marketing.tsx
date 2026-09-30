@@ -1,4 +1,4 @@
-// The front door — dark, layered, product-forward. Every mockup on this page is drawn
+// The front door — white, layered, product-forward. Every mockup on this page is drawn
 // from the real product (work queue, spreads, covenants, delinquency outreach).
 import './marketing.css'
 import { Ico } from './Icons'
@@ -52,7 +52,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
             <div className="mk-mock mk-activity" aria-label="Borrower activity example">
               <div className="who">
                 <span className="mk-avatar">CO</span>
-                <span><b>Cascade Orthodontics</b><span>praman@cascadeortho.com</span></span>
+                <span><b>Cascade Components Inc.</b><span>praman@cascadecomponents.com</span></span>
               </div>
               <div className="mk-ev">
                 <b>Tax return uploaded</b>
@@ -74,7 +74,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
             <div className="mk-stack" aria-label="Work queue example">
               <div className="mk-row">
                 <span className="ic red"><Ico.x /></span>
-                <span><b>Cascade Orthodontics — CL-2026-066</b><span className="meta">payment of $17,850 missed</span></span>
+                <span><b>Cascade Components Inc. — CL-2026-066</b><span className="meta">payment of $17,850 missed</span></span>
                 <span className="mk-pill red"><span className="dot" /> 13 days past due</span>
               </div>
               <div className="mk-row">
@@ -227,7 +227,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
                 <tbody>
                   <tr><td><span className="mk-pill red">past due</span></td><td>$17,850 · 13 days on CL-2026-066</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Open loan</td></tr>
                   <tr><td><span className="mk-pill amber">covenant</span></td><td>FCC 1.18x vs 1.20x · Bluestem Pediatric</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Review</td></tr>
-                  <tr><td><span className="mk-pill purple">spread</span></td><td>FY 2026 draft · Cascade Orthodontics</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Approve</td></tr>
+                  <tr><td><span className="mk-pill purple">spread</span></td><td>FY 2026 draft · Cascade Components Inc.</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Approve</td></tr>
                   <tr><td><span className="mk-pill blue">tickler</span></td><td>PFS renewal · Saguaro Manufacturing</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Request</td></tr>
                 </tbody>
               </table>
