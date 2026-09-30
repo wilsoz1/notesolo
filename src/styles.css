@@ -765,3 +765,15 @@ a.rp-stat:hover { background: #fbfaf8; }
 .rp-card .task-group { padding: 12px 18px 4px; }
 .rp-card .feed-row { padding: 9px 18px; }
 .hm-rail .prof, .hm-rail .rr-card { border-color: #e8e6e0; }
+
+/* The whole app shell renders at the density the user dials in with 80% browser
+   zoom — baked in, so 100% zoom IS that look. (zoom scales type + spacing together.) */
+.shell { zoom: 0.8; }
+
+/* Cards everywhere: every .grid table/panel takes the home page's card treatment */
+.shell .grid { border-color: #e8e6e0; border-radius: 12px; background: #ffffff; }
+.shell .drop { border-color: #d8d4ca; background: #ffffff; }
+.shell .viewbar { background: transparent; }
+.rp-stat .n { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.rp-stat .n.ok { color: var(--green); }
+.rp-stat .n.bad { color: var(--red); }

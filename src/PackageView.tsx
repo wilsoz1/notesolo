@@ -183,29 +183,29 @@ export function PackageView({ docs, policy, setPolicy, amount, setAmount }: {
         </div>
       )}
 
-      <div className="pv-cards">
-        <div className="pv-card">
-          <div className="pv-label">Global DSCR</div>
-          <div className="pv-value">{dscr != null ? `${dscr.toFixed(2)}x` : '—'}</div>
-          <div className={`pv-note ${dscr != null ? (dscr >= policy.minDscr ? 'ok' : 'bad') : ''}`}>
+      <div className="rp-strip">
+        <span className="rp-stat">
+          <span className="l">Global DSCR</span>
+          <span className="v">{dscr != null ? `${dscr.toFixed(2)}x` : '—'}</span>
+          <span className={`n ${dscr != null ? (dscr >= policy.minDscr ? 'ok' : 'bad') : ''}`} style={{ display: 'block' }}>
             {dscr != null ? `${dscr >= policy.minDscr ? '✓' : '✕'} policy ≥ ${policy.minDscr.toFixed(2)}x${shocked != null ? ` · ${shocked.toFixed(2)}x at +200 bps` : ''}` : 'needs business financials'}
-          </div>
-        </div>
-        <div className="pv-card">
-          <div className="pv-label">Business cash flow</div>
-          <div className="pv-value">{bcf != null ? money(bcf) : '—'}</div>
-          <div className="pv-note">{cfCol ? `FY${cfCol.year} · EBITDA − distributions` : 'needs a business return'}</div>
-        </div>
-        <div className="pv-card">
-          <div className="pv-label">Guarantor liquidity</div>
-          <div className="pv-value">{num(pfs?.fields?.['liquid_assets']) != null ? money(num(pfs!.fields['liquid_assets'])!) : '—'}</div>
-          <div className="pv-note">{pfs ? `PFS ${pfs.fields?.['statement_date']?.text ?? ''}` : 'no PFS in package'}</div>
-        </div>
-        <div className="pv-card">
-          <div className="pv-label">Proposed debt service</div>
-          <div className="pv-value">{proposedDS > 0 ? money(proposedDS) : '—'}</div>
-          <div className="pv-note">{effAmount > 0 ? `${money(effAmount)} @ ${(policy.rate * 100).toFixed(2)}% / ${policy.amortYears} yr` : 'set a loan amount below'}</div>
-        </div>
+          </span>
+        </span>
+        <span className="rp-stat">
+          <span className="l">Business cash flow</span>
+          <span className="v">{bcf != null ? money(bcf) : '—'}</span>
+          <span className="n" style={{ display: 'block' }}>{cfCol ? `FY${cfCol.year} · EBITDA − distributions` : 'needs a business return'}</span>
+        </span>
+        <span className="rp-stat">
+          <span className="l">Guarantor liquidity</span>
+          <span className="v">{num(pfs?.fields?.['liquid_assets']) != null ? money(num(pfs!.fields['liquid_assets'])!) : '—'}</span>
+          <span className="n" style={{ display: 'block' }}>{pfs ? `PFS ${pfs.fields?.['statement_date']?.text ?? ''}` : 'no PFS in package'}</span>
+        </span>
+        <span className="rp-stat">
+          <span className="l">Proposed debt service</span>
+          <span className="v">{proposedDS > 0 ? money(proposedDS) : '—'}</span>
+          <span className="n" style={{ display: 'block' }}>{effAmount > 0 ? `${money(effAmount)} @ ${(policy.rate * 100).toFixed(2)}% / ${policy.amortYears} yr` : 'set a loan amount below'}</span>
+        </span>
       </div>
 
       <div className="pv-cols">
