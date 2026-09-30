@@ -26,11 +26,24 @@ const useHash = () => {
 }
 
 const NAV = [
-  { href: '#/app', key: '', icon: Ico.status, label: 'Dashboard' },
-  { href: '#/app/portfolio', key: 'portfolio', icon: Ico.doc, label: 'Portfolio' },
-  { href: '#/app/reports', key: 'reports', icon: Ico.percent, label: 'Reports' },
+  { href: '#/app', key: '', icon: Ico.status, label: 'Home' },
+  { href: '#/app/portfolio', key: 'portfolio', icon: Ico.doc, label: 'Loans' },
+  { href: '#/app/borrowers', key: 'borrowers', icon: Ico.building, label: 'Businesses' },
+  { href: '#/app/guarantors', key: 'guarantors', icon: Ico.person, label: 'Guarantors' },
+  { href: '#/app/deposits', key: 'deposits', icon: Ico.dollar, label: 'Deposits' },
   { href: '#/app/screener', key: 'screener', icon: Ico.search, label: 'Screener' },
+  { href: '#/app/reports', key: 'reports', icon: Ico.percent, label: 'Reports' },
 ]
+// Saved portfolio views and book segments (wired to the portfolio; filters come next).
+const SAVED_VIEWS = [
+  { label: 'Covenants & Annual Reviews', dot: '#4f63f5' },
+  { label: 'Late Pays', dot: '#d33030' },
+  { label: 'Upcoming Maturities', dot: '#b45309' },
+  { label: 'Construction', dot: '#7c5cd6' },
+  { label: 'Modifications', dot: '#0d8a99' },
+  { label: 'Watchlist', dot: '#e07b39' },
+]
+const SEGMENTS = ['C&I', 'CRE — Investor', 'CRE — Owner-Occupied', 'SBA', 'Multifamily', 'Participations']
 // Detail routes highlight their parent section.
 const PARENT: Record<string, string> = { loans: 'portfolio' }
 
@@ -95,7 +108,7 @@ export default function App() {
     : !authed ? null
     : !app.org ? <Onboarding app={app} />
     : sub === 'loans' && subId ? <LoanPage org={app.org} loanId={subId} initialTab={sub2} />
-    : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' ? <Loans org={app.org} />
+    : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' || sub === 'guarantors' || sub === 'deposits' ? <Loans org={app.org} />
     : sub === 'reports' ? <Reports org={app.org} />
     : sub === 'screener' ? <Screener org={app.org} />
     : <Dashboard org={app.org} />
@@ -104,10 +117,19 @@ export default function App() {
     <div className="shell">
       <nav className="side" aria-label="Main">
         <a className="side-logo" href="#/app"><Ico.logo /> <span>NoteSolo</span></a>
+        {authed && app.org && <Search />}
         {NAV.map(n => {
           const I = n.icon
           return <a key={n.href} href={n.href} className={activeKey === n.key ? 'on' : ''}><I /> {n.label}</a>
         })}
+        <div className="side-group">Saved views <span className="plus">+</span></div>
+        {SAVED_VIEWS.map(v => (
+          <a key={v.label} href="#/app/portfolio"><span className="sv-dot" style={{ background: v.dot }} /> {v.label}</a>
+        ))}
+        <div className="side-group">Segments <span className="plus">+</span></div>
+        {SEGMENTS.map(sg => (
+          <a key={sg} href="#/app/portfolio"><Ico.tag /> {sg}</a>
+        ))}
         <div className="side-foot">
           <div className="small" style={{ color: 'inherit' }}>{app.org?.name}</div>
           <div className="small" style={{ opacity: .7, marginBottom: 8 }}>{app.session?.user.email}</div>
@@ -115,9 +137,6 @@ export default function App() {
         </div>
       </nav>
       <div className="main">
-        <header className="appbar">
-          {authed && app.org && <Search />}
-        </header>
         <div className="page">
           {app.loading ? <p className="subtitle">Loading…</p> : body}
         </div>

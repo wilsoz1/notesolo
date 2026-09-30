@@ -70,7 +70,7 @@ export type ClosingItem = {
 export const loans: LoanSummary[] = [
   { id: 'CL-2026-041', borrower: 'Harbor Point Logistics LLC', type: 'Owner-Occupied CRE', amount: 4_250_000, stage: 'Servicing', rm: 'D. Alvarez', riskRating: 4, nextAction: 'Q2 covenant test ready for review', rate: 'SOFR + 275', term: '10 / 25', ltv: 68, dscr: 1.74, maturity: 'Mar 15, 2036', collateral: '1st DOT — warehouse' },
   { id: 'CL-2026-057', borrower: 'Bluestem Ag Partners', type: 'Agricultural RE', amount: 2_800_000, stage: 'Closing', rm: 'K. Ostrander', riskRating: 4, nextAction: 'Title commitment under AI review — 2 exceptions', rate: '6.85% fixed', term: '5 / 20', ltv: 62, dscr: 1.41, maturity: 'Aug 1, 2031', collateral: '1st DOT — 640 ac farmland' },
-  { id: 'CL-2026-063', borrower: 'Meridian Dental Group PC', type: 'Business Acquisition', amount: 1_450_000, stage: 'Approval', rm: 'D. Alvarez', riskRating: 5, nextAction: 'Senior loan committee — Thursday packet drafted', probability: 0.8, rate: 'Prime + 100', term: '7 / 10', ltv: 82, dscr: 1.32, maturity: 'Sep 30, 2033', collateral: 'Blanket UCC + practice assets' },
+  { id: 'CL-2026-063', borrower: 'Meridian Group PC', type: 'Business Acquisition', amount: 1_450_000, stage: 'Approval', rm: 'D. Alvarez', riskRating: 5, nextAction: 'Senior loan committee — Thursday packet drafted', probability: 0.8, rate: 'Prime + 100', term: '7 / 10', ltv: 82, dscr: 1.32, maturity: 'Sep 30, 2033', collateral: 'Blanket UCC + practice assets' },
   { id: 'CL-2026-066', borrower: 'Cascade Fabrication Inc', type: 'Equipment', amount: 900_000, stage: 'Underwriting', rm: 'J. Whitfield', riskRating: 4, nextAction: 'Spreads complete; global DSCR drafted for analyst', probability: 0.7, rate: '7.10% fixed', term: '5 / 5', ltv: 80, dscr: 1.55, maturity: 'Oct 15, 2031', collateral: 'CNC equipment — PMSI' },
   { id: 'CL-2026-071', borrower: 'Sable Ridge Storage LLC', type: 'Investor CRE', amount: 6_750_000, stage: 'Underwriting', rm: 'K. Ostrander', riskRating: 5, nextAction: 'Rent roll inconsistency flagged vs. Schedule E', probability: 0.6, rate: 'SOFR + 300', term: '10 / 25', ltv: 71, dscr: 1.28, maturity: 'Nov 1, 2036', collateral: '1st DOT — self-storage' },
   { id: 'CL-2026-074', borrower: 'North Fork Brewing Co', type: 'Working Capital LOC', amount: 500_000, stage: 'Application', rm: 'J. Whitfield', riskRating: 0, nextAction: '3 of 11 checklist documents received', probability: 0.5, rate: 'Prime + 75', term: '1 / —', ltv: null, dscr: null, maturity: 'Aug 31, 2027', collateral: 'A/R + inventory' },
@@ -84,7 +84,7 @@ export const portfolioCovenants = [
   { loan: 'CL-2026-041', borrower: 'Harbor Point Logistics LLC', covenant: 'Max Debt / TNW', threshold: '≤ 3.5x', actual: '2.4x', status: 'Pass', nextTest: 'Q2 2026', source: 'LA §6.12(c)' },
   { loan: 'CL-2026-057', borrower: 'Bluestem Ag Partners', covenant: 'Minimum DSCR', threshold: '≥ 1.25x', actual: '1.41x', status: 'Pass', nextTest: 'FYE 2026', source: 'LA §6.10(a)' },
   { loan: 'CL-2026-057', borrower: 'Bluestem Ag Partners', covenant: 'Minimum working capital', threshold: '≥ $400K', actual: '$355K', status: 'Fail', nextTest: 'Waiver in review', source: 'LA §6.10(b)' },
-  { loan: 'CL-2026-063', borrower: 'Meridian Dental Group PC', covenant: 'Minimum DSCR', threshold: '≥ 1.20x', actual: '1.32x (pro forma)', status: 'Pass', nextTest: 'Proposed', source: 'Term sheet' },
+  { loan: 'CL-2026-063', borrower: 'Meridian Group PC', covenant: 'Minimum DSCR', threshold: '≥ 1.20x', actual: '1.32x (pro forma)', status: 'Pass', nextTest: 'Proposed', source: 'Term sheet' },
   { loan: 'CL-2026-071', borrower: 'Sable Ridge Storage LLC', covenant: 'Minimum debt yield', threshold: '≥ 9.0%', actual: '8.7% (pro forma)', status: 'Near', nextTest: 'Proposed', source: 'Term sheet' },
 ]
 
@@ -93,7 +93,7 @@ export const dashboardAlerts = [
   { severity: 'high', text: 'Harbor Point Logistics — fixed-charge coverage 1.18x vs. 1.20x required. Near-violation flagged for Q2 test.', loan: 'CL-2026-041' },
   { severity: 'med', text: 'Bluestem Ag — insurance certificate missing lender loss-payable clause. Draft borrower request pending approval.', loan: 'CL-2026-057' },
   { severity: 'med', text: 'Ellison Medical — beneficial ownership totals 87%. Follow-up request drafted for RM review.', loan: 'CL-2026-075' },
-  { severity: 'low', text: 'Meridian Dental — committee packet auto-assembled; 2 policy exceptions itemized (LTV, amortization).', loan: 'CL-2026-063' },
+  { severity: 'low', text: 'Meridian Group — committee packet auto-assembled; 2 policy exceptions itemized (LTV, amortization).', loan: 'CL-2026-063' },
 ]
 
 export const dueTicklers = [

@@ -75,7 +75,7 @@ export default function Screener({ org }: { org: Org | null }) {
   const runSample = async (sample: 'om' | 'tax_return') => {
     const doc: Doc = {
       id: crypto.randomUUID(), status: 'staged', step: 0, file: null,
-      name: sample === 'tax_return' ? 'Desert_Bloom_Dental_1120S_2026.pdf (sample)' : 'Mesa_Ridge_Dental_OM.pdf (sample)',
+      name: sample === 'tax_return' ? 'Desert_Bloom_1120S_2026.pdf (sample)' : 'Mesa_Ridge_OM.pdf (sample)',
     }
     setDocs(ds => [...ds, doc])
     await processOne(doc, sample)
@@ -126,7 +126,7 @@ export default function Screener({ org }: { org: Org | null }) {
           <div className="drop-actions">
             <button className="btn-dark" onClick={e => { e.stopPropagation(); input.current?.click() }}>Choose files <Ico.plus /></button>
             <button className="btn-light" onClick={e => { e.stopPropagation(); runSample('om') }}>Sample: property OM</button>
-            <button className="btn-light" onClick={e => { e.stopPropagation(); runSample('tax_return') }}>Sample: practice tax return</button>
+            <button className="btn-light" onClick={e => { e.stopPropagation(); runSample('tax_return') }}>Sample: business tax return</button>
           </div>
         </div>
       )}
@@ -283,10 +283,10 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
         .insert({ org_id: org.id, name: pf('person_name')?.text ?? g('guarantor')?.text?.split(' (')[0] ?? sponsor, company: sponsor })
         .select().single()
       const loanType = biz
-        ? (/start|new practice|de novo/i.test(g('loan_purpose')?.text ?? '') ? 'Start-up loan' : 'Expansion loan')
+        ? (/start|startup|de novo/i.test(g('loan_purpose')?.text ?? '') ? 'Start-up loan' : 'Expansion loan')
         : 'Owner-Occupied CRE'
       const collateral = biz
-        ? (g('collateral_offered')?.text ?? 'Practice assets')
+        ? (g('collateral_offered')?.text ?? 'Business assets')
         : `1st DOT — ${g('property_name')?.text ?? 'property'}`
       const { data: newLoan } = await supabase.from('loans').insert({
         org_id: org.id, customer_id: cust?.id ?? null,
@@ -332,7 +332,7 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
       nextAction: `Screened package — ${fails ? `${fails} policy flag${fails > 1 ? 's' : ''}` : 'passes policy'}`,
       rate: rate ?? '—', term: term ?? '—', ltv: ltv === null ? null : ltv * 100, dscr,
       maturity: '—',
-      collateral: biz ? (g('collateral_offered')?.text ?? 'Practice assets') : `1st DOT — ${g('property_name')?.text ?? 'property'}`,
+      collateral: biz ? (g('collateral_offered')?.text ?? 'Business assets') : `1st DOT — ${g('property_name')?.text ?? 'property'}`,
     })
     toast('Sign up to save this loan to a portfolio')
     window.location.hash = '#/signup'

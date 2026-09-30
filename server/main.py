@@ -733,7 +733,7 @@ KIND_SPECS: Dict[str, Dict[str, Any]] = {
         "keys": ["practice_name", "report_period", "gross_production", "collections", "collection_rate",
                  "adjustments", "active_patients", "new_patients_monthly", "hygiene_production_pct",
                  "chair_utilization"],
-        "hints": "A dental practice production/management report. collection_rate = collections / "
+        "hints": "A business production/management report. collection_rate = collections / "
                  "(production - adjustments), as a fraction.",
     },
     "purchase_agreement": {
@@ -772,7 +772,7 @@ async def extract_om(file: UploadFile = File(...)):  # noqa: C901
         "'personal_financial_statement' = an individual's PFS (assets/liabilities/net worth). "
         "'bank_statement' = a bank account statement. "
         "'debt_schedule' = a listing of a borrower's existing debts. "
-        "'practice_production_report' = a dental/medical practice production or management report. "
+        "'practice_production_report' = a business production, operations or management report. "
         "'purchase_agreement' = a purchase agreement or LOI for a business or practice. "
         "'other' = none of these.",
         f"<document>\n{text[:12000]}\n</document>",

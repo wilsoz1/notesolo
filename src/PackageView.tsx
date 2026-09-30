@@ -95,8 +95,10 @@ export function PackageView({ docs, policy, setPolicy, amount, setAmount }: {
   docs: ScreenDoc[]; policy: Policy; setPolicy: (p: Policy) => void
   amount: number | null; setAmount: (n: number | null) => void
 }) {
-  const [openIS, setOpenIS] = useState(true)
-  const [openBS, setOpenBS] = useState(true)
+  // Collapsed by default — the verdict lives in the metric row and the flags;
+  // the full statements are one click away when someone wants the lines.
+  const [openIS, setOpenIS] = useState(false)
+  const [openBS, setOpenBS] = useState(false)
 
   const done = docs.filter(d => d.status === 'done' && d.deal)
   const running = docs.some(d => d.status === 'running')

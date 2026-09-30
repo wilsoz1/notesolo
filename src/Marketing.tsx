@@ -40,7 +40,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
       <div className="mk-frame">
         {/* Hero */}
         <section className="mk-hero">
-          <span className="mk-badge">Portfolio management for dental practice lenders</span>
+          <span className="mk-badge">AI portfolio management for commercial lenders</span>
           <h1>Stop Chasing,<br />Start Knowing</h1>
           <p className="mk-sub">From uploaded tax return to tested covenant, your book watches itself — and tells you what needs you.</p>
           <div className="mk-hero-ctas">
@@ -79,12 +79,12 @@ export default function Marketing({ authed }: { authed: boolean }) {
               </div>
               <div className="mk-row">
                 <span className="ic amber"><Ico.clock /></span>
-                <span><b>Riverbend Dental Partners — annual review</b><span className="meta">production report 12 days late</span></span>
+                <span><b>Riverbend Partners LLC — annual review</b><span className="meta">production report 12 days late</span></span>
                 <span className="mk-pill amber"><span className="dot" /> reporting past due</span>
               </div>
               <div className="mk-row">
                 <span className="ic purple"><Ico.doc /></span>
-                <span><b>Harbor Point Dental Group — T-12 Jun 2026</b><span className="meta">extracted 41s ago</span></span>
+                <span><b>Harbor Point Logistics — T-12 Jun 2026</b><span className="meta">extracted 41s ago</span></span>
                 <span className="mk-pill purple"><span className="dot" /> spread ready</span>
               </div>
             </div>
@@ -119,7 +119,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
 
         {/* Monitoring collage */}
         <section className="mk-section" id="mk-monitoring">
-          <h2>Every practice tells a story</h2>
+          <h2>Every borrower tells a story</h2>
           <p>Real-time monitoring that turns documents into decisions — across start-up, expansion and owner-occupied CRE loans.</p>
           <a className="mk-link" href="#/screener">Explore the live demo <Arrow /></a>
         </section>
@@ -228,7 +228,7 @@ export default function Marketing({ authed }: { authed: boolean }) {
                   <tr><td><span className="mk-pill red">past due</span></td><td>$17,850 · 13 days on CL-2026-066</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Open loan</td></tr>
                   <tr><td><span className="mk-pill amber">covenant</span></td><td>FCC 1.18x vs 1.20x · Bluestem Pediatric</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Review</td></tr>
                   <tr><td><span className="mk-pill purple">spread</span></td><td>FY 2026 draft · Cascade Orthodontics</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Approve</td></tr>
-                  <tr><td><span className="mk-pill blue">tickler</span></td><td>PFS renewal · Saguaro Family Dentistry</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Request</td></tr>
+                  <tr><td><span className="mk-pill blue">tickler</span></td><td>PFS renewal · Saguaro Manufacturing</td><td style={{ textAlign: 'right', color: 'var(--mk-blue)', fontWeight: 600 }}>Request</td></tr>
                 </tbody>
               </table>
             </div>

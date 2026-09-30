@@ -1,123 +1,125 @@
-// Dashboard — the home page. Live analytics over the real book (the cards the
-// marketing page only mocks), a grouped to-do list, and what's coming up next.
+// Home — a CRM-style three-zone page. The middle is the working inbox: an
+// exposure trend, the tasks the agents queued for a human, and a feed of what
+// they completed. The right rail is the portfolio profile with details folded
+// behind collapsible sections — minimum cognitive load, everything one click away.
 import { useEffect, useState } from 'react'
 import { supabase, Org, Payment, Spread, Guarantor, DbCovenant, money, daysLate, pastDueOf } from './supabase'
 import { DbLoan } from './supabase'
 import { latestGlobalDSCR, CFScenarioData } from './CashFlow'
-import { DraftButton } from './Ai'
 import { Skeleton } from './dialogs'
 import { Ico } from './Icons'
 
 type Item = {
-  sev: 0 | 1 | 2            // 0 = red, 1 = amber, 2 = info
+  sev: 0 | 1 | 2
   chip: string
   text: string
   who?: string
-  action: string
   href: string
+  when?: string
 }
+type Feed = { icon: 'ok' | 'doc' | 'ai'; text: string; on: string; href?: string }
 type Upcoming = { on: string; what: string; loan_id: string; loan_number: string }
 
-// Accent palette for the analytics cards (facts stay monochrome elsewhere;
-// these are the marketing collage's colors, now driven by real data).
-const C = { blue: '#7aa7ff', purple: '#b39bf5', green: '#3ecf8e', pink: '#f06fa8', amber: '#e2b93b', red: '#e5484d' }
-
-const fmtShort = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${n}`)
-const fmtDay = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-
-function Spark({ series, color }: { series: number[]; color: string }) {
-  const w = 240, h = 56
-  const max = Math.max(...series, 1), min = Math.min(...series, 0)
-  const pts = series.map((v, i) => `${(i / (series.length - 1)) * w},${h - 6 - ((v - min) / (max - min || 1)) * (h - 12)}`).join(' ')
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} aria-hidden="true" style={{ display: 'block', marginTop: 10 }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  )
+const fmtShort = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${Math.round(n)}`)
+const fmtDay = (d: string) => new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const fmtAgo = (iso: string) => {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
 }
 
-function Donut({ total, good, near, fail }: { total: number; good: number; near: number; fail: number }) {
-  const r = 44, cir = 2 * Math.PI * r
-  const seg = (n: number) => (total ? (n / total) * cir : 0)
-  let off = cir * 0.25 // start at 12 o'clock
-  const arcs: { n: number; color: string }[] = [
-    { n: good, color: C.green }, { n: near, color: C.amber }, { n: fail, color: C.red },
-  ]
+// Colored tags for task kinds — the only color on the page besides state chips.
+const TAGS: Record<string, { bg: string; fg: string }> = {
+  'past due': { bg: 'var(--red-bg)', fg: 'var(--red)' },
+  covenant: { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
+  'cash flow': { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
+  reporting: { bg: 'var(--blue-bg)', fg: 'var(--blue)' },
+  spread: { bg: '#f1edfd', fg: '#6d4fd2' },
+  review: { bg: '#f1edfd', fg: '#6d4fd2' },
+}
+
+function TrendChart({ series, labels }: { series: number[]; labels: string[] }) {
+  const w = 760, h = 170, padL = 44, padB = 22, padT = 10
+  const max = Math.max(...series, 1)
+  const x = (i: number) => padL + (i / (series.length - 1)) * (w - padL - 8)
+  const y = (v: number) => padT + (1 - v / max) * (h - padT - padB)
+  const pts = series.map((v, i) => `${x(i)},${y(v)}`).join(' ')
+  const ticks = [0, max / 2, max]
   return (
-    <div style={{ position: 'relative', width: 110, height: 110, margin: '6px auto 2px' }}>
-      <svg width="110" height="110" viewBox="0 0 110 110" aria-hidden="true">
-        <circle cx="55" cy="55" r={r} stroke="var(--line)" strokeWidth="9" fill="none" />
-        {arcs.map((a, i) => {
-          const el = a.n > 0 && (
-            <circle key={i} cx="55" cy="55" r={r} stroke={a.color} strokeWidth="9" fill="none"
-              strokeLinecap="butt" strokeDasharray={`${seg(a.n)} ${cir - seg(a.n)}`} strokeDashoffset={off} />
-          )
-          off -= seg(a.n)
-          return el
-        })}
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
-        <div><b style={{ fontSize: 20 }}>{total}</b><div style={{ fontSize: 10, color: 'var(--sub)' }}>tested</div></div>
-      </div>
-    </div>
+    <svg className="hm-chart" viewBox={`0 0 ${w} ${h}`} width="100%" aria-hidden="true">
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={padL} x2={w - 8} y1={y(t)} y2={y(t)} stroke="var(--line-2)" strokeWidth="1" />
+          <text x={padL - 8} y={y(t) + 3} textAnchor="end">{fmtShort(t)}</text>
+        </g>
+      ))}
+      {[0, 4, 8, 11].map(i => (
+        <text key={i} x={x(i)} y={h - 6} textAnchor={i === 11 ? 'end' : 'middle'}>
+          {i === 11 ? 'Today' : new Date(labels[i] + '-15').toLocaleDateString('en-US', { month: 'short' })}
+        </text>
+      ))}
+      <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   )
 }
 
 export default function Dashboard({ org }: { org: Org }) {
   const [items, setItems] = useState<Item[] | null>(null)
-  const [strip, setStrip] = useState<{ label: string; value: string; alert?: boolean }[]>([])
+  const [feed, setFeed] = useState<Feed[]>([])
   const [loans, setLoans] = useState<(DbLoan & { customers: { company: string | null } | null })[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [covenants, setCovenants] = useState<(DbCovenant & { loan_id?: string })[]>([])
   const [upcoming, setUpcoming] = useState<Upcoming[]>([])
-  const [deposits, setDeposits] = useState<{ balance: number; opened: string | null }[]>([])
-  const [dscrs, setDscrs] = useState<{ company: string; dscr: number; loanId: string }[]>([])
-  const [annuals, setAnnuals] = useState<{ id: string; due: string; status: string; loan_id: string; loan_number: string; responsible: string }[]>([])
+  const [depTotal, setDepTotal] = useState(0)
+  const [lineUtil, setLineUtil] = useState<string>('—')
+  const [dscrs, setDscrs] = useState<number[]>([])
+  const [annuals, setAnnuals] = useState<{ id: string; due: string; status: string; loan_id: string; loan_number: string; company: string }[]>([])
 
   useEffect(() => {
     Promise.all([
       supabase.from('loans').select('*, customers(company)'),
       supabase.from('loan_payments').select('id, loan_id, due_date, amount, status, paid_date'),
-      supabase.from('deposits').select('balance, opened'),
+      supabase.from('deposits').select('balance'),
       supabase.from('credit_lines').select('commitment, outstanding'),
       supabase.from('covenants').select('*'),
-      supabase.from('ticklers').select('id, requirement, due_date, status, responsible, loan_id, loans(loan_number)'),
-      supabase.from('financial_spreads').select('id, period, customer_id, customers(company)').eq('status', 'draft'),
+      supabase.from('ticklers').select('id, requirement, due_date, status, responsible, loan_id, loans(loan_number, customers(company))'),
+      supabase.from('financial_spreads').select('id, period, customer_id, created_at, customers(company)').eq('status', 'draft'),
       supabase.from('cash_flow_scenarios').select('id, customer_id, name, data, customers(company)').eq('is_base', true),
       supabase.from('financial_spreads').select('*').eq('status', 'reviewed'),
       supabase.from('guarantors').select('*, loans(customer_id)'),
-    ]).then(([ln, pay, dep, loc, cov, tick, drafts, cfs, reviewed, guar]) => {
+      supabase.from('documents').select('id, filename, doc_type, status, created_at, loan_id').order('created_at', { ascending: false }).limit(8),
+    ]).then(([ln, pay, dep, loc, cov, tick, drafts, cfs, reviewed, guar, docs]) => {
       const allLoans = (ln.data as unknown as (DbLoan & { customers: { company: string | null } | null })[]) ?? []
       const allPayments = (pay.data as Payment[]) ?? []
       const allCovs = (cov.data as DbCovenant[]) ?? []
-      const ticks = (tick.data as unknown as { id: string; requirement: string; due_date: string; status: string; responsible: string; loan_id: string; loans: { loan_number: string } | null }[]) ?? []
+      const ticks = (tick.data as unknown as { id: string; requirement: string; due_date: string; status: string; responsible: string; loan_id: string; loans: { loan_number: string; customers: { company: string | null } | null } | null }[]) ?? []
       setLoans(allLoans); setPayments(allPayments); setCovenants(allCovs)
 
-      const out: Item[] = []
       const loanFor = (customerId: string | null) =>
         allLoans.filter(l => l.customer_id === customerId).sort((a, b) => Number(b.amount) - Number(a.amount))[0] ?? null
 
+      const out: Item[] = []
       for (const l of allLoans) {
         const pd = pastDueOf(allPayments, l.id)
-        if (pd) out.push({ sev: 0, chip: 'past due', text: `${l.customers?.company} — ${money(pd.amount)} past due ${pd.days} days on ${l.loan_number}`, action: 'Open loan', href: `#/app/loans/${l.id}/Payments` })
+        if (pd) out.push({ sev: 0, chip: 'past due', text: `${l.customers?.company} — ${money(pd.amount)} past due ${pd.days} days on ${l.loan_number}`, href: `#/app/loans/${l.id}/Payments` })
       }
       for (const c of allCovs) {
         if (c.status === 'Fail') {
           const loan = allLoans.find(l => l.id === (c as DbCovenant & { loan_id?: string }).loan_id)
-          out.push({ sev: 0, chip: 'covenant', text: `Covenant failing on ${loan?.loan_number ?? 'loan'}: ${c.name} (${c.actual ?? ''})`, action: 'Review', href: `#/app/loans/${(c as DbCovenant & { loan_id?: string }).loan_id}/Compliance` })
+          out.push({ sev: 0, chip: 'covenant', text: `Covenant failing on ${loan?.loan_number ?? 'loan'}: ${c.name} (${c.actual ?? ''})`, href: `#/app/loans/${(c as DbCovenant & { loan_id?: string }).loan_id}/Compliance` })
         }
       }
       for (const t of ticks) {
-        if ((t.status === 'open' || t.status === 'requested') && daysLate(t.due_date) > 0)
-          out.push({ sev: 1, chip: 'reporting', text: `${t.requirement} past due ${daysLate(t.due_date)}d on ${t.loans?.loan_number}`, who: t.responsible, action: 'Open', href: `#/app/loans/${t.loan_id}/Compliance` })
+        if ((t.status === 'open' || t.status === 'requested') && daysLate(t.due_date) > 0 && !/annual review/i.test(t.requirement))
+          out.push({ sev: 1, chip: 'reporting', text: `${t.requirement} past due ${daysLate(t.due_date)}d on ${t.loans?.loan_number}`, who: t.responsible, href: `#/app/loans/${t.loan_id}/Compliance` })
       }
-      for (const s of (drafts.data as unknown as { id: string; period: string; customer_id: string; customers: { company: string | null } | null }[]) ?? []) {
+      const draftRows = (drafts.data as unknown as { id: string; period: string; customer_id: string; created_at: string; customers: { company: string | null } | null }[]) ?? []
+      for (const s of draftRows) {
         const l = loanFor(s.customer_id)
-        if (l) out.push({ sev: 2, chip: 'spread', text: `Draft spread awaiting review: ${s.customers?.company} · ${s.period}`, action: 'Review', href: `#/app/loans/${l.id}/Spreads` })
+        if (l) out.push({ sev: 2, chip: 'spread', text: `Review the drafted spread — ${s.customers?.company} · ${s.period}`, href: `#/app/loans/${l.id}/Spreads` })
       }
       const allSpreads = (reviewed.data as Spread[]) ?? []
       const allGuar = (guar.data as unknown as (Guarantor & { loans: { customer_id: string | null } | null })[]) ?? []
-      const dscrList: { company: string; dscr: number; loanId: string }[] = []
+      const dscrList: number[] = []
       for (const cf of (cfs.data as unknown as { id: string; customer_id: string; name: string; data: CFScenarioData; customers: { company: string | null } | null }[]) ?? []) {
         const r = latestGlobalDSCR(
           cf.data ?? {},
@@ -127,24 +129,44 @@ export default function Dashboard({ org }: { org: Org }) {
         )
         const target = loanFor(cf.customer_id)
         if (!r || !target) continue
-        dscrList.push({ company: cf.customers?.company ?? '—', dscr: r.dscr, loanId: target.id })
+        dscrList.push(r.dscr)
         if (r.dscr < 1.2) out.push({
           sev: r.dscr < 1 ? 0 : 1, chip: 'cash flow',
-          text: `Global DSCR ${r.dscr.toFixed(2)}x on ${cf.customers?.company} (${cf.name} · ${r.period})`,
-          action: 'Open cash flow', href: `#/app/loans/${target.id}/Borrower`,
+          text: `Global DSCR ${r.dscr.toFixed(2)}x on ${cf.customers?.company} (${r.period})`,
+          href: `#/app/loans/${target.id}/Borrower`,
         })
       }
       setDscrs(dscrList)
-      setDeposits((dep.data as { balance: number; opened: string | null }[]) ?? [])
-      // Annual reviews are ticklers — one per loan under review, whatever their status.
-      setAnnuals(ticks
-        .filter(t => /annual review/i.test(t.requirement))
-        .map(t => ({ id: t.id, due: t.due_date, status: t.status, loan_id: t.loan_id, loan_number: t.loans?.loan_number ?? '', responsible: t.responsible }))
+      setDepTotal(((dep.data as { balance: number }[]) ?? []).reduce((s, d) => s + Number(d.balance), 0))
+      const locs = (loc.data as { commitment: number; outstanding: number }[]) ?? []
+      const commit = locs.reduce((s, c) => s + Number(c.commitment), 0)
+      setLineUtil(commit ? `${Math.round((locs.reduce((s, c) => s + Number(c.outstanding), 0) / commit) * 100)}%` : '—')
+
+      const reviews = ticks.filter(t => /annual review/i.test(t.requirement))
+      setAnnuals(reviews.map(t => ({ id: t.id, due: t.due_date, status: t.status, loan_id: t.loan_id, loan_number: t.loans?.loan_number ?? '', company: t.loans?.customers?.company ?? t.loans?.loan_number ?? '—' }))
         .sort((a, b) => (a.due < b.due ? -1 : 1)))
+      for (const r of reviews) {
+        if (r.status !== 'complete' && r.status !== 'waived')
+          out.push({ sev: 2, chip: 'review', text: `Annual review — ${r.loans?.customers?.company ?? r.loans?.loan_number}`, who: r.responsible, href: `#/app/loans/${r.loan_id}/Compliance`, when: r.due_date })
+      }
       out.sort((a, b) => a.sev - b.sev)
       setItems(out)
 
-      // Coming up: everything with a date in the next 90 days, across the book.
+      // ——— Activity: what the agents completed, newest first ———
+      const f: Feed[] = []
+      for (const d of (docs.data as unknown as { id: string; filename: string; doc_type: string; status: string; created_at: string; loan_id: string | null }[]) ?? []) {
+        f.push({ icon: 'doc', text: `Read ${d.filename} — classified as ${d.doc_type}`, on: d.created_at, href: d.loan_id ? `#/app/loans/${d.loan_id}/Documents` : undefined })
+      }
+      for (const s of draftRows) {
+        const l = loanFor(s.customer_id)
+        f.push({ icon: 'ai', text: `Spread ${s.period} financials — ${s.customers?.company}`, on: s.created_at, href: l ? `#/app/loans/${l.id}/Spreads` : undefined })
+      }
+      for (const r of reviews.filter(t => t.status === 'complete')) {
+        f.push({ icon: 'ok', text: `Annual review package prepared — ${r.loans?.customers?.company ?? r.loans?.loan_number}`, on: r.due_date, href: `#/app/loans/${r.loan_id}/Compliance` })
+      }
+      setFeed(f.sort((a, b) => (a.on < b.on ? 1 : -1)).slice(0, 7))
+
+      // Coming up: dated events in the next 90 days.
       const today = new Date().toISOString().slice(0, 10)
       const horizon = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
       const within = (d: string | null): d is string => !!d && d >= today && d <= horizon
@@ -153,41 +175,22 @@ export default function Dashboard({ org }: { org: Org }) {
         if (within(l.maturity)) up.push({ on: l.maturity, what: `${l.loan_number} matures`, loan_id: l.id, loan_number: l.loan_number })
         if (within(l.draw_period_end)) up.push({ on: l.draw_period_end, what: `${l.loan_number} draw period ends`, loan_id: l.id, loan_number: l.loan_number })
         if (within(l.rate_reset_date)) up.push({ on: l.rate_reset_date, what: `${l.loan_number} rate resets`, loan_id: l.id, loan_number: l.loan_number })
-        if (within(l.io_end_date)) up.push({ on: l.io_end_date, what: `${l.loan_number} interest-only period ends`, loan_id: l.id, loan_number: l.loan_number })
+        if (within(l.io_end_date)) up.push({ on: l.io_end_date, what: `${l.loan_number} interest-only ends`, loan_id: l.id, loan_number: l.loan_number })
       }
       for (const t of ticks) {
         if ((t.status === 'open' || t.status === 'requested') && within(t.due_date))
-          up.push({ on: t.due_date, what: `${t.requirement} due (${t.responsible})`, loan_id: t.loan_id, loan_number: t.loans?.loan_number ?? '' })
+          up.push({ on: t.due_date, what: `${t.requirement} (${t.responsible})`, loan_id: t.loan_id, loan_number: t.loans?.loan_number ?? '' })
       }
       setUpcoming(up.sort((a, b) => (a.on < b.on ? -1 : 1)).slice(0, 8))
-
-      const loanTotal = allLoans.reduce((s, l) => s + Number(l.amount), 0)
-      const balTotal = allLoans.reduce((s, l) => s + Number(l.current_balance ?? 0), 0)
-      const depTotal = ((dep.data as { balance: number }[]) ?? []).reduce((s, d) => s + Number(d.balance), 0)
-      const locs = (loc.data as { commitment: number; outstanding: number }[]) ?? []
-      const commit = locs.reduce((s, c) => s + Number(c.commitment), 0)
-      const drawn = locs.reduce((s, c) => s + Number(c.outstanding), 0)
-      const pastDueTotal = allLoans.reduce((s, l) => s + (pastDueOf(allPayments, l.id)?.amount ?? 0), 0)
-      setStrip([
-        { label: `${allLoans.length} loans committed`, value: money(loanTotal) },
-        { label: 'outstanding balances', value: money(balTotal) },
-        { label: 'deposits', value: money(depTotal) },
-        { label: `line utilization · ${money(drawn)} drawn`, value: commit ? `${Math.round((drawn / commit) * 100)}%` : '—' },
-        ...(pastDueTotal ? [{ label: 'past due', value: money(pastDueTotal), alert: true }] : []),
-      ])
     })
   }, [org.id])
 
-  // ——— Analytics, all computed from real rows ———
-
-  // Committed exposure by month: cumulative originations over the last 12 months.
+  // ——— Computed, all from real rows ———
   const months: string[] = []
   for (let i = 11; i >= 0; i--) {
     const d = new Date(); d.setMonth(d.getMonth() - i)
     months.push(d.toISOString().slice(0, 7))
   }
-  // A loan with no (or future-dated) origination counts from the current month,
-  // so the trend's endpoint always matches the header strip's committed total.
   const nowMonth = months[months.length - 1]
   const exposureSeries = months.map(m =>
     loans.reduce((s, l) => {
@@ -198,59 +201,22 @@ export default function Dashboard({ org }: { org: Org }) {
   const expThen = exposureSeries[0] ?? 0
   const expDelta = expThen ? ((expNow - expThen) / expThen) * 100 : null
 
-  // Late dollars by month: payments due that month that were paid late or are still unpaid past due.
   const todayStr = new Date().toISOString().slice(0, 10)
-  const lateSeries = months.map(m =>
-    payments.reduce((s, p) => {
-      if (p.due_date.slice(0, 7) !== m) return s
-      const late = p.status === 'paid' ? !!p.paid_date && p.paid_date > p.due_date : p.due_date < todayStr
-      return s + (late ? Number(p.amount) : 0)
-    }, 0))
   const pastDueNow = loans.reduce((s, l) => s + (pastDueOf(payments, l.id)?.amount ?? 0), 0)
-  const pastDueLoans = loans.filter(l => pastDueOf(payments, l.id)).length
-
   const covPass = covenants.filter(c => c.status === 'Pass').length
   const covNear = covenants.filter(c => c.status === 'Near').length
   const covFail = covenants.filter(c => c.status === 'Fail').length
+  const borrowerCount = new Set(loans.map(l => l.customer_id ?? l.id)).size
+  const wtdDscr = dscrs.length ? dscrs.reduce((s, d) => s + d, 0) / dscrs.length : null
+  const reviewsDue = annuals.filter(a => a.status !== 'complete' && a.status !== 'waived').length
+  const nextMaturity = loans.map(l => l.maturity).filter((m): m is string => !!m && m >= todayStr).sort()[0]
 
-  const mixColors = [C.blue, C.purple, C.green, C.pink]
+  const mixColors = ['#4f63f5', '#7c5cd6', '#17803d', '#e07b39']
   const mix = [...new Set(loans.map(l => l.type))]
     .map(t => ({ type: t, total: loans.filter(l => l.type === t).reduce((s, l) => s + Number(l.amount), 0) }))
     .sort((a, b) => b.total - a.total)
   const mixMax = Math.max(...mix.map(m => m.total), 1)
 
-  // Top 5 relationships by outstanding exposure.
-  const byCustomer = new Map<string, { company: string; total: number; loanId: string }>()
-  for (const l of loans) {
-    const key = l.customer_id ?? l.id
-    const cur = byCustomer.get(key)
-    const bal = Number(l.current_balance ?? l.amount)
-    if (cur) { cur.total += bal; if (Number(l.amount) > 0 && !cur.loanId) cur.loanId = l.id }
-    else byCustomer.set(key, { company: l.customers?.company ?? l.loan_number, total: bal, loanId: l.id })
-  }
-  const topExposures = [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, 5)
-  const topMax = Math.max(...topExposures.map(t => t.total), 1)
-
-  // Global DSCR distribution across relationships with a computable base case.
-  const buckets = [
-    { label: '< 1.00x', color: C.red, n: dscrs.filter(d => d.dscr < 1).length },
-    { label: '1.00 – 1.25x', color: C.amber, n: dscrs.filter(d => d.dscr >= 1 && d.dscr < 1.25).length },
-    { label: '1.25 – 1.50x', color: C.blue, n: dscrs.filter(d => d.dscr >= 1.25 && d.dscr < 1.5).length },
-    { label: '≥ 1.50x', color: C.green, n: dscrs.filter(d => d.dscr >= 1.5).length },
-  ]
-  const bucketMax = Math.max(...buckets.map(b => b.n), 1)
-
-  // Deposits: cumulative balances by account-open month (we keep no balance history —
-  // this is growth of the deposit book, not statement balances).
-  const depTotalNow = deposits.reduce((s, d) => s + Number(d.balance), 0)
-  const depSeries = months.map(m =>
-    deposits.reduce((s, d) => {
-      const om = d.opened ? (d.opened.slice(0, 7) > nowMonth ? nowMonth : d.opened.slice(0, 7)) : nowMonth
-      return s + (om <= m ? Number(d.balance) : 0)
-    }, 0))
-
-  // Payments due in the next 7 days: scheduled payment rows plus each loan's
-  // next-payment fields (future payments usually exist only on the loan record).
   const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
   const weekFromRows = payments
     .filter(p => p.status !== 'paid' && p.due_date >= todayStr && p.due_date <= weekEnd)
@@ -262,209 +228,156 @@ export default function Dashboard({ org }: { org: Org }) {
     .map(l => ({ key: `${l.id}:${l.next_payment_date}`, due_date: l.next_payment_date!, amount: Number(l.next_payment_amount), loan: l as (typeof loans)[number] | undefined }))
   const weekPayments = [...weekFromRows, ...weekFromLoans].sort((a, b) => (a.due_date < b.due_date ? -1 : 1))
 
-  // Covenant test calendar: next scheduled tests, overdue ones first.
   const covCal = covenants
     .filter(c => c.next_test)
     .sort((a, b) => (a.next_test! < b.next_test! ? -1 : 1))
-    .slice(0, 8)
+    .slice(0, 6)
     .map(c => ({ ...c, loan: loans.find(l => l.id === c.loan_id) }))
 
-  // The to-do list, grouped so each kind of work reads as its own block.
   const GROUPS: { chip: string; label: string }[] = [
     { chip: 'past due', label: 'Past-due payments' },
     { chip: 'covenant', label: 'Covenant failures' },
     { chip: 'cash flow', label: 'Cash flow watch' },
     { chip: 'reporting', label: 'Reporting past due' },
     { chip: 'spread', label: 'Spreads awaiting review' },
+    { chip: 'review', label: 'Annual reviews' },
   ]
+  const dismiss = (it: Item) => setItems(prev => (prev ? prev.filter(x => x !== it) : prev))
 
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <>
-      <div className="viewbar" style={{ marginBottom: 4, alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ marginBottom: 2 }}>Dashboard</h1>
-          <p className="subtitle" style={{ marginBottom: 10 }}>
-            {greeting}. {items === null ? 'Pulling your book together…'
-              : items.length === 0 ? 'Nothing needs you right now — the book is clean.'
-              : `${items.length} thing${items.length > 1 ? 's' : ''} need${items.length === 1 ? 's' : ''} attention.`}
-          </p>
-          <div className="stat-row">
-            {strip.map(s => <span key={s.label}><b style={s.alert ? { color: 'var(--red)' } : undefined}>{s.value}</b><i>{s.label}</i></span>)}
-          </div>
+    <div className="hm">
+      <div className="hm-main">
+        <div className="crumbs2"><a href="#/app">{org.name}</a> / Home</div>
+        <h1 className="hm-h1">
+          {greeting}
+          <span className="small">
+            {items === null ? 'pulling your book together…'
+              : items.length === 0 ? 'nothing needs you — the book is clean'
+              : `${items.length} task${items.length > 1 ? 's' : ''} need a human`}
+          </span>
+        </h1>
+
+        <div className="hm-sec">
+          <b>Committed exposure</b>
+          <span className="small">{money(expNow)}{expDelta !== null && expDelta !== 0 ? ` · ▲ ${expDelta.toFixed(1)}% vs. a year ago` : ''}</span>
+          <span className="spacer" />
+          <span className="small">12 months</span>
         </div>
-        <span className="spacer" />
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <DraftButton kind="brief" label="Draft Monday brief" />
-          <a className="btn-dark" href="#/app/screener" style={{ textDecoration: 'none' }}>Screen a new loan <Ico.chevron /></a>
+        <TrendChart series={exposureSeries} labels={months} />
+
+        <div className="hm-sec">
+          <b>Tasks</b>
+          <span className="small">what needs a human — the agents queued these</span>
+          <span className="spacer" />
+          <a className="btn-dark" href="#/app/screener" style={{ textDecoration: 'none' }}>Screen a package <Ico.chevron /></a>
         </div>
-      </div>
-
-
-      {/* Analytics — the marketing page's collage, on live data */}
-      <div className="dash-cards">
-        <div className="dash-card">
-          <h4>Committed exposure <i>last 12 months</i></h4>
-          <div className="dash-big">{money(expNow)}</div>
-          {expDelta !== null && expDelta !== 0 && (
-            <div className="dash-delta" style={{ color: C.green }}>▲ {expDelta.toFixed(1)}% vs. a year ago</div>
-          )}
-          <Spark series={exposureSeries} color={C.blue} />
-        </div>
-        <div className="dash-card">
-          <h4>Covenants <i>current tests</i></h4>
-          <Donut total={covenants.length} good={covPass} near={covNear} fail={covFail} />
-          <div className="dash-bar-row"><span className="swatch" style={{ background: C.green }} /> Passing <span className="spacer" /><b>{covPass}</b></div>
-          <div className="dash-bar-row"><span className="swatch" style={{ background: C.amber }} /> Near threshold <span className="spacer" /><b>{covNear}</b></div>
-          <div className="dash-bar-row"><span className="swatch" style={{ background: C.red }} /> Failing <span className="spacer" /><b>{covFail}</b></div>
-        </div>
-        <div className="dash-card">
-          <h4>Portfolio mix <i>by commitment</i></h4>
-          {mix.map((m, i) => (
-            <div className="dash-bar-row" key={m.type}>
-              <span className="swatch" style={{ background: mixColors[i % mixColors.length] }} />
-              <span className="ellipsis" style={{ width: 130 }}>{m.type}</span>
-              <span className="dash-track"><i style={{ width: `${(m.total / mixMax) * 100}%`, background: mixColors[i % mixColors.length] }} /></span>
-              <b>{fmtShort(m.total)}</b>
-            </div>
-          ))}
-        </div>
-        <div className="dash-card">
-          <h4>Past-due dollars <i>rules firing daily</i></h4>
-          <div className="dash-big" style={pastDueNow ? { color: C.pink } : undefined}>{money(pastDueNow)}</div>
-          <div className="dash-delta small">
-            {pastDueNow ? `${pastDueLoans} loan${pastDueLoans > 1 ? 's' : ''} · delinquency rules handle outreach` : 'nothing past due'}
-          </div>
-          <Spark series={lateSeries} color={C.pink} />
-        </div>
-
-        <div className="dash-card">
-          <h4>Top exposures <i>by relationship</i></h4>
-          {topExposures.map(t => (
-            <div className="dash-bar-row" key={t.company}>
-              <a className="cell-link ellipsis" style={{ width: 130, flex: 'none' }} href={`#/app/loans/${t.loanId}/Borrower`} title={t.company}>{t.company}</a>
-              <span className="dash-track"><i style={{ width: `${(t.total / topMax) * 100}%`, background: C.blue }} /></span>
-              <b>{fmtShort(t.total)}</b>
-            </div>
-          ))}
-          {!topExposures.length && <p className="small">No loans yet.</p>}
-        </div>
-
-        <div className="dash-card">
-          <h4>Global DSCR <i>{dscrs.length} relationship{dscrs.length === 1 ? '' : 's'} measured</i></h4>
-          {buckets.map(b => (
-            <div className="dash-bar-row" key={b.label}>
-              <span className="swatch" style={{ background: b.color }} />
-              <span style={{ width: 90 }}>{b.label}</span>
-              <span className="dash-track"><i style={{ width: `${(b.n / bucketMax) * 100}%`, background: b.color }} /></span>
-              <b>{b.n}</b>
-            </div>
-          ))}
-          <div className="dash-delta small" style={{ marginTop: 8 }}>from each relationship's base cash-flow scenario</div>
-        </div>
-
-        <div className="dash-card">
-          <h4>Deposit balances <i>{deposits.length} account{deposits.length === 1 ? '' : 's'}</i></h4>
-          <div className="dash-big">{money(depTotalNow)}</div>
-          <div className="dash-delta small">book growth by account opening — no balance history kept</div>
-          <Spark series={depSeries} color={C.green} />
-        </div>
-      </div>
-
-      {items === null ? <div style={{ marginTop: 20 }}><Skeleton rows={6} /></div> : (
-        <div className="two-col" style={{ marginTop: 20 }}>
-          <div>
-          <div className="grid" style={{ marginBottom: 20 }}>
-            <div className="uw-head"><span><b>To do</b> <span className="small">{items.length ? `${items.length} item${items.length > 1 ? 's' : ''} · most urgent first` : 'all clear'}</span></span></div>
-            {items.length === 0 && (
-              <p className="small" style={{ padding: 18 }}>
-                <Ico.check /> All clear. Payments current, covenants passing, reporting up to date.
-              </p>
-            )}
-            {GROUPS.map(gr => {
-              const group = items.filter(it => it.chip === gr.chip)
-              if (!group.length) return null
-              return (
-                <div key={gr.chip}>
-                  <div className="wq-group">{gr.label} · {group.length}</div>
-                  {group.map((it, i) => (
-                    <div className="wq-row" key={i}>
-                      <span className={`dot2 ${it.sev === 0 ? 'red' : it.sev === 1 ? 'amber' : 'info'}`} />
-                      <span style={{ flex: 1 }}>{it.text}{it.who && <span className="small"> · {it.who}</span>}</span>
-                      <a className="btn-light" href={it.href} style={{ textDecoration: 'none' }}>{it.action}</a>
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-
-          <div className="grid">
-            <div className="uw-head"><span><b>Annual reviews</b> <span className="small">every loan under review — the loan page drafts the memo</span></span></div>
-            {annuals.length === 0 && <p className="small" style={{ padding: 18 }}>No annual reviews scheduled.</p>}
-            {annuals.map(a => {
-              const loan = loans.find(l => l.id === a.loan_id)
-              const late = a.status !== 'complete' && a.status !== 'waived' && daysLate(a.due) > 0
-              return (
-                <div className="wq-row" key={a.id}>
-                  <span className="small mono" style={{ width: 58 }}>{fmtDay(a.due)}</span>
-                  <span style={{ flex: 1 }}>{loan?.customers?.company ?? '—'} <span className="small">· {a.responsible}</span></span>
-                  {a.status === 'complete' ? <span className="status s-green"><Ico.check /> Complete</span>
-                    : a.status === 'waived' ? <span className="status s-gray">Waived</span>
-                    : late ? <span className="status s-amber"><Ico.clock /> {daysLate(a.due)}d overdue</span>
-                    : <span className="status s-gray">Upcoming</span>}
-                  <a className="linkish" href={`#/app/loans/${a.loan_id}`}>{a.loan_number} →</a>
-                </div>
-              )
-            })}
-          </div>
-          </div>
-
-          <div>
-            <div className="grid" style={{ marginBottom: 20 }}>
-              <div className="uw-head"><span><b>Coming up</b> <span className="small">next 90 days — maturities, draw periods, resets, reporting</span></span></div>
-              {upcoming.length === 0 && <p className="small" style={{ padding: 18 }}>Nothing on the calendar for the next 90 days.</p>}
-              {upcoming.map((u, i) => (
-                <div className="wq-row" key={i}>
-                  <span className="small mono" style={{ width: 58 }}>{fmtDay(u.on)}</span>
-                  <span style={{ flex: 1 }}>{u.what}</span>
-                  <a className="linkish" href={`#/app/loans/${u.loan_id}`}>{u.loan_number} →</a>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid" style={{ marginBottom: 20 }}>
-              <div className="uw-head"><span><b>Payments due this week</b> <span className="small">{weekPayments.length ? money(weekPayments.reduce((s, p) => s + Number(p.amount), 0)) + ' expected' : 'next 7 days'}</span></span></div>
-              {weekPayments.length === 0 && <p className="small" style={{ padding: 18 }}>No payments fall due in the next 7 days.</p>}
-              {weekPayments.map(p => (
-                <div className="wq-row" key={p.key}>
-                  <span className="small mono" style={{ width: 58 }}>{fmtDay(p.due_date)}</span>
-                  <span style={{ flex: 1 }}>{p.loan?.customers?.company ?? '—'}</span>
-                  <span className="mono">{money(p.amount)}</span>
-                  <a className="linkish" href={`#/app/loans/${p.loan?.id}/Payments`}>{p.loan?.loan_number ?? 'loan'} →</a>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid">
-              <div className="uw-head"><span><b>Covenant tests</b> <span className="small">next scheduled tests across the book</span></span></div>
-              {covCal.length === 0 && <p className="small" style={{ padding: 18 }}>No covenant tests scheduled.</p>}
-              {covCal.map(c => {
-                const overdue = c.next_test! < todayStr
-                return (
-                  <div className="wq-row" key={c.id}>
-                    <span className="small mono" style={{ width: 58 }}>{fmtDay(c.next_test!)}</span>
-                    <span style={{ flex: 1 }}>{c.name}{overdue && <span className="status s-amber" style={{ marginLeft: 8 }}><Ico.clock /> overdue</span>}</span>
-                    <span className={`status ${c.status === 'Fail' ? 's-red' : c.status === 'Near' ? 's-amber' : 's-gray'}`}>{c.status}</span>
-                    <a className="linkish" href={`#/app/loans/${c.loan_id}/Compliance`}>{c.loan?.loan_number ?? 'loan'} →</a>
+        {items === null ? <Skeleton rows={5} /> : items.length === 0 ? (
+          <p className="small" style={{ padding: '14px 2px' }}><Ico.check /> All clear. Payments current, covenants passing, reporting up to date.</p>
+        ) : (
+          GROUPS.map(gr => {
+            const group = items.filter(it => it.chip === gr.chip)
+            if (!group.length) return null
+            return (
+              <div key={gr.chip}>
+                <div className="task-group">{gr.label}</div>
+                {group.map((it, i) => (
+                  <div className="task-row" key={i}>
+                    <button className="task-check" aria-label="Mark handled" onClick={() => dismiss(it)} />
+                    <span className="t"><a href={it.href}>{it.text.split(' — ')[0]}</a>{it.text.includes(' — ') ? ` — ${it.text.split(' — ').slice(1).join(' — ')}` : ''}{it.who && <span className="small"> · {it.who}</span>}</span>
+                    <span className="task-tag" style={{ background: TAGS[it.chip]?.bg, color: TAGS[it.chip]?.fg }}>{it.chip}</span>
+                    <span className="task-when"><Ico.clock /> {it.when ? fmtDay(it.when) : it.sev === 0 ? 'now' : it.sev === 1 ? 'this week' : 'when free'}</span>
                   </div>
-                )
-              })}
+                ))}
+              </div>
+            )
+          })
+        )}
+
+        <div className="hm-sec"><b>Activity</b><span className="small">what the agents completed</span></div>
+        {feed.length === 0 && <p className="small" style={{ padding: '10px 2px' }}>Nothing yet — screen a package or upload documents and the agents get to work.</p>}
+        {feed.map((fi, i) => (
+          <div className="feed-row" key={i}>
+            <span className={`feed-ic ${fi.icon}`}>{fi.icon === 'ok' ? <Ico.check /> : fi.icon === 'doc' ? <Ico.doc /> : <Ico.logo />}</span>
+            <span className="ellipsis">{fi.href ? <a className="cell-link" href={fi.href}>{fi.text}</a> : fi.text}</span>
+            <span className="when">{fmtAgo(fi.on)}</span>
+          </div>
+        ))}
+      </div>
+
+      <aside className="hm-rail">
+        <div className="prof">
+          <div className="prof-cover" />
+          <div className="prof-body">
+            <div className="prof-av">{(org.name || 'N').slice(0, 1).toUpperCase()}</div>
+            <div className="prof-name">{org.name}</div>
+            <div className="prof-sub">Commercial loan portfolio · {loans.length} loans · {borrowerCount} borrowers</div>
+            <div className="prof-stats">
+              <span><div className="l">Committed</div><div className="v">{fmtShort(expNow)}</div></span>
+              <span><div className="l">Deposits</div><div className="v">{fmtShort(depTotal)}</div></span>
+              <span><div className="l">Past due</div><div className="v" style={pastDueNow ? { color: 'var(--red)' } : undefined}>{pastDueNow ? fmtShort(pastDueNow) : '$0'}</div></span>
+              <span><div className="l">Avg DSCR</div><div className="v">{wtdDscr ? `${wtdDscr.toFixed(2)}x` : '—'}</div></span>
             </div>
           </div>
         </div>
-      )}
-    </>
+
+        <div className="rr-card">
+          <div className="rr-head">Concentrations <span className="small">by commitment</span></div>
+          <div style={{ paddingBottom: 10 }}>
+            {mix.map((m, i) => (
+              <div className="hbar" key={m.type}>
+                <span className="l ellipsis" title={m.type}>{m.type}</span>
+                <span className="track"><i style={{ width: `${(m.total / mixMax) * 100}%`, background: mixColors[i % mixColors.length] }} /></span>
+                <b>{fmtShort(m.total)}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <details className="rr-card" open>
+          <summary>Portfolio details</summary>
+          <div className="kv2"><span className="k"><Ico.status /> Covenants</span><span>{covPass} pass · {covNear} near · {covFail} fail</span></div>
+          <div className="kv2"><span className="k"><Ico.doc /> Reviews due</span><span>{reviewsDue || 'none'}</span></div>
+          <div className="kv2"><span className="k"><Ico.percent /> Line utilization</span><span>{lineUtil}</span></div>
+          <div className="kv2"><span className="k"><Ico.cal /> Next maturity</span><span>{nextMaturity ? fmtDay(nextMaturity) : '—'}</span></div>
+          <div className="kv2"><span className="k"><Ico.shield /> DSCR &lt; 1.25x</span><span>{dscrs.filter(d => d < 1.25).length} relationship{dscrs.filter(d => d < 1.25).length === 1 ? '' : 's'}</span></div>
+        </details>
+
+        <details className="rr-card">
+          <summary>Payments this week <span className="small">{weekPayments.length ? money(weekPayments.reduce((s, p) => s + p.amount, 0)) : 'none'}</span></summary>
+          {weekPayments.length === 0 && <p className="small" style={{ padding: '6px 0 12px' }}>No payments due in the next 7 days.</p>}
+          {weekPayments.map(p => (
+            <div className="kv2" key={p.key}>
+              <span className="k">{fmtDay(p.due_date)}</span>
+              <a className="cell-link ellipsis" style={{ flex: 1 }} href={`#/app/loans/${p.loan?.id}/Payments`}>{p.loan?.customers?.company ?? '—'}</a>
+              <span className="mono" style={{ fontSize: 12.5 }}>{money(p.amount)}</span>
+            </div>
+          ))}
+        </details>
+
+        <details className="rr-card">
+          <summary>Covenant tests <span className="small">{covCal.length ? `next ${covCal.length}` : 'none scheduled'}</span></summary>
+          {covCal.map(c => (
+            <div className="kv2" key={c.id}>
+              <span className="k">{fmtDay(c.next_test!)}</span>
+              <a className="cell-link ellipsis" style={{ flex: 1 }} href={`#/app/loans/${c.loan_id}/Compliance`}>{c.name}</a>
+              <span className={`status ${c.status === 'Fail' ? 's-red' : c.status === 'Near' ? 's-amber' : 's-gray'}`}>{c.status}</span>
+            </div>
+          ))}
+        </details>
+
+        <details className="rr-card">
+          <summary>Coming up <span className="small">next 90 days</span></summary>
+          {upcoming.length === 0 && <p className="small" style={{ padding: '6px 0 12px' }}>Nothing on the calendar.</p>}
+          {upcoming.map((u, i) => (
+            <div className="kv2" key={i}>
+              <span className="k">{fmtDay(u.on)}</span>
+              <a className="cell-link ellipsis" style={{ flex: 1 }} href={`#/app/loans/${u.loan_id}`}>{u.what}</a>
+            </div>
+          ))}
+        </details>
+      </aside>
+    </div>
   )
 }

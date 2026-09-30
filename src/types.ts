@@ -57,7 +57,7 @@ export const FIELD_DEFS: FieldDef[] = [
 
 export const SECTIONS: Section[] = ['Property', 'Rent Roll & Occupancy', 'Income & Expenses', 'Pricing', 'Loan Request', 'Sponsor']
 
-// ——— Operating-company track: a business (practice) and its spread, not a building ———
+// ——— Operating-company track: an operating business and its spread, not a building ———
 
 export type BizSection = 'Company' | 'Financials — latest year' | 'Income statement detail' | 'Balance sheet (Schedule L)' | 'Prior year' | 'Loan Request' | 'Guarantors'
 export type BizFieldDef = { key: string; label: string; section: BizSection; fmt?: 'money' | 'pct' | 'num' | 'x' | 'text' }
@@ -221,9 +221,9 @@ export const KIND_META: Record<string, { label: string; defs: SimpleDef[] }> = {
     ],
   },
   practice_production_report: {
-    label: 'Practice production report',
+    label: 'Production / operations report',
     defs: [
-      { key: 'practice_name', label: 'Practice' }, { key: 'report_period', label: 'Period' },
+      { key: 'practice_name', label: 'Business' }, { key: 'report_period', label: 'Period' },
       { key: 'gross_production', label: 'Gross production', fmt: 'money' },
       { key: 'collections', label: 'Collections', fmt: 'money' },
       { key: 'collection_rate', label: 'Collection rate', fmt: 'pct' },

@@ -169,7 +169,7 @@ export function ImportBook({ org, onDone }: { org: Org; onDone: () => void }) {
                   onChange={e => { const f = e.target.files?.[0]; if (f) f.text().then(ingest) }} />
                 <button className="btn-dark" onClick={() => input.current?.click()}>Choose CSV file</button>
                 <p className="small" style={{ margin: '12px 0 4px' }}>…or paste rows:</p>
-                <textarea rows={6} placeholder={'Loan Number,Borrower,Amount,Rate,Maturity\nCL-1001,Sonrisa Dental PC,1250000,7.25% fixed,2032-06-01'}
+                <textarea rows={6} placeholder={'Loan Number,Borrower,Amount,Rate,Maturity\nCL-1001,Sonrisa Holdings PC,1250000,7.25% fixed,2032-06-01'}
                   style={{ width: '100%', font: '12px ui-monospace, monospace', background: 'var(--card-2)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 8, padding: 10 }}
                   onBlur={e => e.target.value.trim() && ingest(e.target.value)} />
               </>
