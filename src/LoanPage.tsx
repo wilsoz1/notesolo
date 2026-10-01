@@ -13,9 +13,41 @@ import { Ico } from './Icons'
 
 const shareUrl = (token: string) => `${window.location.origin}/#/share/${token}`
 const covCls = { Pass: 's-green', Near: 's-amber', Fail: 's-red' } as const
-const TABS = ['Overview', 'Borrower', 'Payments', 'Spreads', 'Compliance', 'Structure', 'Documents', 'Activity'] as const
 type CovTest = { id: string; tested_at: string; actual: string; status: 'Pass' | 'Near' | 'Fail'; covenant_id: string }
-type Tab = (typeof TABS)[number]
+type Tab = string
+
+// One page, progressive disclosure: every former tab is a vertical section that
+// opens on demand. Sections with live problems start open; the rest stay folded.
+function Section({ id, title, sub, badge, badgeCls, defaultOpen, children }: {
+  id: string; title: string; sub?: string; badge?: number; badgeCls?: string
+  defaultOpen?: boolean; children: React.ReactNode
+}) {
+  return (
+    <details
+      className="rr-card loan-sec" id={`sec-${id}`}
+      ref={el => { if (el && !el.dataset.init) { el.open = !!defaultOpen; el.dataset.init = '1' } }}
+    >
+      <summary>
+        <b>{title}</b>
+        {sub && <span className="small">{sub}</span>}
+        {badge ? <span className={`tab-badge ${badgeCls ?? 'amber'}`}>{badge}</span> : null}
+      </summary>
+      <div className="loan-sec-body">{children}</div>
+    </details>
+  )
+}
+
+// Notes carry a color by what they're about — classified from the text itself.
+const NOTE_KINDS: [RegExp, string, string][] = [
+  [/payment|paid|past.?due|wire|funds|ach|deposit/i, 'payment', 'var(--green)'],
+  [/document|pfs|tax return|statement|upload|insurance|appraisal|report|1120|1040|k-?1/i, 'documentation', 'var(--blue)'],
+  [/call|called|site visit|check.?in|spoke|met |meeting|discussed|visit/i, 'check in', '#7c5cd6'],
+  [/covenant|dscr|ratio|compliance|annual review/i, 'covenant', 'var(--amber)'],
+]
+const noteKind = (body: string): { label: string; color: string } => {
+  for (const [re, label, color] of NOTE_KINDS) if (re.test(body)) return { label, color }
+  return { label: 'general', color: 'var(--faint)' }
+}
 
 const payStatus = (p: Payment) => {
   if (p.status === 'paid') {
@@ -52,11 +84,15 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
   const [deposits, setDeposits] = useState<Deposit[]>([])
   const [lines, setLines] = useState<CreditLine[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTabState] = useState<Tab>((TABS as readonly string[]).includes(initialTab ?? '') ? (initialTab as Tab) : 'Overview')
+  // Deep links (`…/loans/<id>/Payments`) open and scroll to that section.
   const setTab = (t: Tab) => {
-    setTabState(t)
+    const el = document.getElementById(`sec-${t}`) as HTMLDetailsElement | null
+    if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
     history.replaceState(null, '', `#/app/loans/${loanId}/${encodeURIComponent(t)}`)
   }
+  useEffect(() => {
+    if (!loading && initialTab) setTimeout(() => setTab(initialTab), 80)
+  }, [loading])  // eslint-disable-line react-hooks/exhaustive-deps
   const load = async () => {
     const { data: l } = await supabase.from('loans').select('*, customers(name, company, email, phone)').eq('id', loanId).single()
     setLoan((l as DbLoan) ?? null)
@@ -135,12 +171,6 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
   const healthy = !overdue.length && !covFails.length && !tickPastDue.length
 
   const draftSpreads = spreads.filter(s => s.status === 'draft')
-  const badges: Partial<Record<Tab, { n: number; cls: string }>> = {
-    Payments: overdue.length ? { n: overdue.length, cls: 'red' } : undefined,
-    Spreads: draftSpreads.length ? { n: draftSpreads.length, cls: 'amber' } : undefined,
-    Compliance: covFails.length + tickPastDue.length ? { n: covFails.length + tickPastDue.length, cls: covFails.length ? 'red' : 'amber' } : undefined,
-    Documents: docsReview.length ? { n: docsReview.length, cls: 'amber' } : undefined,
-  }
 
   return (
     <>
@@ -192,25 +222,50 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
         </div>
       )}
 
-      <div className="detail-tabs" style={{ marginTop: 16 }}>
-        {TABS.map(t => (
-          <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>
-            {t}{badges[t] && <span className={`tab-badge ${badges[t]!.cls}`}>{badges[t]!.n}</span>}
-          </button>
-        ))}
-      </div>
+      <div className="loan-secs">
+        <Overview {...{ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, setTab }} />
 
-      {tab === 'Overview' && <Overview {...{ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, notes, outreach, payments, setTab }} />}
-      {tab === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} spreads={spreads} />}
-      {tab === 'Payments' && <PaymentsTab loan={loan} payments={payments} />}
-      {tab === 'Spreads' && <SpreadsTab loan={loan} spreads={spreads} onChange={load} />}
-      {tab === 'Compliance' && <>
-        <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
-        <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
-      </>}
-      {tab === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
-      {tab === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
-      {tab === 'Activity' && <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />}
+        <Section id="Borrower" title="Borrower & relationship"
+          sub={`${loan.customers?.company ?? '—'} · ${relLoans.length} loan${relLoans.length === 1 ? '' : 's'} · ${relGuarantors.length} guarantor${relGuarantors.length === 1 ? '' : 's'}`}>
+          <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} />
+        </Section>
+
+        <Section id="Payments" title="Payments"
+          sub={loan.next_payment_amount ? `next ${money(loan.next_payment_amount)} · ${fmtDate(loan.next_payment_date)}` : 'balances & history'}
+          badge={overdue.length || undefined} badgeCls="red" defaultOpen={overdue.length > 0}>
+          <PaymentsTab loan={loan} payments={payments} />
+        </Section>
+
+        <Section id="Spreads" title="Financials — spreads & cash flow"
+          sub={`${spreads.length} period${spreads.length === 1 ? '' : 's'} · cash flow is editable below`}
+          badge={draftSpreads.length || undefined} badgeCls="amber" defaultOpen={draftSpreads.length > 0}>
+          <SpreadsTab loan={loan} spreads={spreads} onChange={load} />
+          {loan.customer_id && (
+            <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
+          )}
+        </Section>
+
+        <Section id="Compliance" title="Compliance"
+          sub={`${covenants.length} covenant${covenants.length === 1 ? '' : 's'} · ${ticklers.length} tickler${ticklers.length === 1 ? '' : 's'} · annual review`}
+          badge={covFails.length + tickPastDue.length || undefined} badgeCls={covFails.length ? 'red' : 'amber'}
+          defaultOpen={covFails.length + tickPastDue.length > 0}>
+          <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
+          <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
+        </Section>
+
+        <Section id="Structure" title="Structure & terms" sub={`${loan.payment_type} · ${loan.rate ?? '—'} · mat. ${fmtDate(loan.maturity)}`}>
+          <StructureTab loan={loan} guarantors={guarantors} />
+        </Section>
+
+        <Section id="Documents" title="Documents & sharing" sub={`${docs.length} file${docs.length === 1 ? '' : 's'} · ${links.filter(l => !l.revoked).length} share link${links.filter(l => !l.revoked).length === 1 ? '' : 's'}`}
+          badge={docsReview.length || undefined} defaultOpen={docsReview.length > 0}>
+          <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />
+        </Section>
+
+        <Section id="Activity" title="Communication & notes" sub={`${outreach.length} message${outreach.length === 1 ? '' : 's'} · ${notes.length} note${notes.length === 1 ? '' : 's'}`}>
+          <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />
+        </Section>
+      </div>
     </>
   )
 }
@@ -222,10 +277,10 @@ const Card = ({ title, sub, children, right }: { title: string; sub?: string; ch
   </div>
 )
 
-// ——— Overview: triage list + recent activity, nothing else ———
-function Overview({ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, notes, outreach, payments, setTab }: {
+// ——— Needs attention: the triage list, always visible above the sections ———
+function Overview({ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, setTab }: {
   overdue: Payment[]; covFails: DbCovenant[]; covNear: DbCovenant[]; tickPastDue: DbTickler[]
-  stalePfs: Guarantor[]; docsReview: Doc[]; notes: Note[]; outreach: Attempt[]; payments: Payment[]; setTab: (t: Tab) => void
+  stalePfs: Guarantor[]; docsReview: Doc[]; setTab: (t: Tab) => void
 }) {
   const items: { sev: 'red' | 'amber'; text: string; tab: Tab }[] = [
     ...overdue.map(p => ({ sev: 'red' as const, text: `Payment of ${money(Number(p.amount))} due ${fmtDate(p.due_date)} is ${daysLate(p.due_date)} days past due`, tab: 'Payments' as Tab })),
@@ -235,43 +290,25 @@ function Overview({ overdue, covFails, covNear, tickPastDue, stalePfs, docsRevie
     ...stalePfs.map(g => ({ sev: 'amber' as const, text: `${g.name}'s personal financial statement is over a year old (${fmtDate(g.pfs_date)})`, tab: 'Structure' as Tab })),
     ...docsReview.map(d => ({ sev: 'amber' as const, text: `Document needs review: ${d.filename}`, tab: 'Documents' as Tab })),
   ]
-
-  type Ev = { at: string; text: string; chip: string }
-  const events: Ev[] = [
-    ...notes.map(n => ({ at: n.created_at, text: `${n.author}: ${n.body}`, chip: 'note' })),
-    ...outreach.map(a => ({ at: a.created_at, text: `${a.rule_id ? 'Auto ' : ''}${a.channel} to ${a.recipient} — ${a.subject ?? a.body}`, chip: a.rule_id ? 'auto' : a.channel })),
-    ...payments.filter(p => p.status === 'paid' && p.paid_date).map(p => ({ at: p.paid_date! + 'T12:00:00', text: `Payment of ${money(Number(p.amount))} received${p.paid_date! > p.due_date ? ' (late)' : ''}`, chip: 'payment' })),
-  ].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 6)
-
+  if (!items.length) return null
   return (
-    <div className="two-col">
-      <Card title="Needs attention" sub={items.length ? `${items.length} item${items.length > 1 ? 's' : ''}` : undefined}>
-        {items.length ? items.map((it, i) => (
-          <div className="alert" key={i}>
-            <span className={`dot2 ${it.sev}`} />
-            <span style={{ flex: 1 }}>{it.text}</span>
-            <button className="linkish" onClick={() => setTab(it.tab)}>{it.tab} →</button>
-          </div>
-        )) : <p className="small" style={{ padding: 14 }}>Nothing needs attention. Payments current, covenants in compliance, reporting up to date.</p>}
-      </Card>
-      <Card title="Recent activity" sub="notes, outreach, payments">
-        {events.length ? events.map((e, i) => (
-          <div className="alert" key={i}>
-            <span className="pill">{e.chip}</span>
-            <span style={{ flex: 1 }} className="small">{e.text}</span>
-            <span className="small mono">{new Date(e.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-          </div>
-        )) : <p className="small" style={{ padding: 14 }}>No activity yet.</p>}
-      </Card>
-    </div>
+    <Card title="Needs attention" sub={`${items.length} item${items.length > 1 ? 's' : ''}`}>
+      {items.map((it, i) => (
+        <div className="alert" key={i}>
+          <span className={`dot2 ${it.sev}`} />
+          <span style={{ flex: 1 }}>{it.text}</span>
+          <button className="linkish" onClick={() => setTab(it.tab)}>{it.tab} →</button>
+        </div>
+      ))}
+    </Card>
   )
 }
 
 // ——— Borrower: the relationship, reached from the loan — contact, guarantors,
 // cash flow, deposits, lines, and the borrower's other loans ———
-function BorrowerTab({ org, loan, relLoans, relGuarantors, deposits, lines, spreads }: {
+function BorrowerTab({ org, loan, relLoans, relGuarantors, deposits, lines }: {
   org: Org; loan: DbLoan; relLoans: DbLoan[]; relGuarantors: Guarantor[]
-  deposits: Deposit[]; lines: CreditLine[]; spreads: Spread[]
+  deposits: Deposit[]; lines: CreditLine[]
 }) {
   if (!loan.customer_id) return <p className="small" style={{ padding: 14 }}>No borrower on file for this loan.</p>
   const c = loan.customers
@@ -309,8 +346,6 @@ function BorrowerTab({ org, loan, relLoans, relGuarantors, deposits, lines, spre
       </div>
 
       <PortalCard org={org} customerId={loan.customer_id} loanId={loan.id} />
-
-      <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
 
       <div className="two-col">
         <Card title="Other loans" sub={others.length ? 'same borrower' : undefined}>
@@ -433,10 +468,10 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
 
   return (
     <Card title="Financial spreads" sub="one column per statement — drafts are created automatically when tax returns or financials are uploaded">
-      <table>
+      <table className="spread-tight">
         <thead>
           <tr>
-            <th style={{ width: 200 }}>Line item</th>
+            <th style={{ width: 160 }}>Line item</th>
             {spreads.map(s => (
               <th key={s.id} className="num">
                 <div>{s.period}</div>
@@ -444,7 +479,7 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
                 <span className={`status ${s.status === 'reviewed' ? 's-green' : 's-amber'}`} style={{ marginTop: 4 }}>{s.status === 'reviewed' ? 'Reviewed' : 'Draft'}</span>
               </th>
             ))}
-            <th style={{ width: 170 }} />
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -722,7 +757,6 @@ function Compose({ org, loan, onSent }: { org: Org; loan: DbLoan; onSent: () => 
 
 function ActivityTab({ org, loan, notes, outreach, onChange }: { org: Org; loan: DbLoan; notes: Note[]; outreach: Attempt[]; onChange: () => void }) {
   const [body, setBody] = useState('')
-  const [expanded, setExpanded] = useState<string | null>(null)
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
     const user = (await supabase.auth.getUser()).data.user
@@ -735,39 +769,63 @@ function ActivityTab({ org, loan, notes, outreach, onChange }: { org: Org; loan:
     onChange()
   }
 
-  type Ev = { id: string; at: string; chip: string; head: string; detail?: string; status?: React.ReactNode }
-  const events: Ev[] = [
-    ...notes.map(n => ({ id: `n${n.id}`, at: n.created_at, chip: 'note', head: `${n.author}`, detail: n.body })),
-    ...outreach.map(a => ({
-      id: `o${a.id}`, at: a.created_at, chip: a.rule_id ? 'auto' : a.channel,
-      head: `${a.channel} to ${a.recipient}${a.subject ? ` — ${a.subject}` : ''}`, detail: a.body,
-      status: <span className={`status ${a.status === 'sent' ? 's-green' : a.status === 'failed' ? 's-red' : 's-blue'}`}>{a.status}</span>,
-    })),
-  ].sort((a, b) => (a.at < b.at ? 1 : -1))
+  // The conversation reads like Messages: our outreach on the right in blue,
+  // oldest first, day markers between gaps. (Inbound replies will sit left.)
+  const thread = [...outreach].sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
+  const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
   return (
-    <Card title="Notes & activity" sub="send outreach, log calls — one record per borrower">
-      <div className="notes">
+    <>
+      <Card title="Conversation" sub={`with ${loan.customers?.name ?? loan.customers?.company ?? 'the borrower'} — email & text, every send logged`}>
+        <div className="ios-thread">
+          {thread.map((a, i) => {
+            const newDay = i === 0 || dayOf(thread[i - 1].created_at) !== dayOf(a.created_at)
+            return (
+              <div key={a.id}>
+                {newDay && <div className="ios-day">{dayOf(a.created_at)}</div>}
+                <div className="ios-row me">
+                  <div className={`ios-b me ${a.channel === 'sms' ? 'sms' : ''}`}>
+                    {a.subject && <b style={{ display: 'block', marginBottom: 2 }}>{a.subject}</b>}
+                    {a.body}
+                  </div>
+                </div>
+                <div className="ios-meta">
+                  {a.rule_id ? 'Auto · ' : ''}{a.channel === 'sms' ? 'Text' : 'Email'} to {a.recipient} · {new Date(a.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {' · '}<span className={a.status === 'failed' ? 'bad' : a.status === 'sent' ? 'ok' : ''}>{a.status}</span>
+                </div>
+              </div>
+            )
+          })}
+          {!thread.length && <p className="small" style={{ padding: '8px 2px' }}>No messages yet — the composer below sends real email or text, and it lands here.</p>}
+        </div>
         <Compose org={org} loan={loan} onSent={onChange} />
-        <form onSubmit={add} className="note-form">
-          <input required placeholder="Add a note — e.g. 'Called borrower re: Aug payment; promised funds by 9/15'" value={body} onChange={e => setBody(e.target.value)} />
-          <button className="btn-dark">Add</button>
-        </form>
-        {events.map(e => (
-          <div className="note" key={e.id} onClick={() => setExpanded(x => (x === e.id ? null : e.id))} style={{ cursor: e.detail ? 'pointer' : 'default' }}>
-            <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span className="pill">{e.chip}</span>
-              <b>{e.head}</b>
-              {e.status}
-              <span className="spacer" style={{ flex: 1 }} />
-              <span className="mono">{new Date(e.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-            </div>
-            {e.detail && (expanded === e.id || e.chip === 'note') && <div style={{ marginTop: 4 }}>{e.detail}</div>}
-          </div>
-        ))}
-        {!events.length && <p className="small" style={{ padding: '0 14px 12px' }}>No activity yet.</p>}
-      </div>
-    </Card>
+      </Card>
+
+      <Card title="Notes" sub="color-coded by what they're about — classified from the text">
+        <div className="notes">
+          <form onSubmit={add} className="note-form">
+            <input required placeholder="Add a note — e.g. 'Called borrower re: Aug payment; promised funds by 9/15'" value={body} onChange={e => setBody(e.target.value)} />
+            <button className="btn-dark">Add</button>
+          </form>
+          {notes.map(n => {
+            const k = noteKind(n.body)
+            return (
+              <div className="note" key={n.id}>
+                <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span className="note-kind" style={{ background: k.color }} />
+                  <span className="note-kind-label" style={{ color: k.color }}>{k.label}</span>
+                  <b>{n.author}</b>
+                  <span className="spacer" style={{ flex: 1 }} />
+                  <span className="mono">{new Date(n.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                </div>
+                <div style={{ marginTop: 4 }}>{n.body}</div>
+              </div>
+            )
+          })}
+          {!notes.length && <p className="small" style={{ padding: '0 14px 12px' }}>No notes yet.</p>}
+        </div>
+      </Card>
+    </>
   )
 }
 

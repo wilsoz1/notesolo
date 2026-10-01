@@ -773,3 +773,38 @@ a.rp-stat:hover { background: #fbfaf8; }
 .rp-stat .n { font-size: 12px; color: var(--sub); margin-top: 2px; }
 .rp-stat .n.ok { color: var(--green); }
 .rp-stat .n.bad { color: var(--red); }
+
+/* ═══════════════ Loan page: vertical progressive disclosure ═══════════════ */
+.loan-secs { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.loan-sec { padding: 0 18px; }
+.loan-sec > summary { padding: 13px 0; font-size: 14px; }
+.loan-sec > summary b { font-size: 14px; }
+.loan-sec > summary .tab-badge { margin-left: 2px; }
+.loan-sec-body { padding: 2px 0 16px; }
+.loan-sec-body .grid:last-child { margin-bottom: 0; }
+/* No horizontal scrolling: cells wrap instead (numbers stay on one line) */
+.loan-sec-body .grid { overflow-x: visible; }
+.loan-sec-body td, .loan-sec-body th { white-space: normal; }
+.loan-sec-body td.mono, .loan-sec-body .mono, .loan-sec-body td.num { white-space: nowrap; }
+
+/* Spreads: columns pulled close together instead of stretched across the page */
+table.spread-tight { width: auto; min-width: 0; }
+.spread-tight th, .spread-tight td { padding: 6px 12px; }
+.spread-tight th.num, .spread-tight td.num { min-width: 92px; }
+
+/* Communication as an iOS conversation */
+.ios-thread { display: flex; flex-direction: column; padding: 10px 14px 6px; max-height: 460px; overflow-y: auto; }
+.ios-day { text-align: center; font-size: 11.5px; font-weight: 600; color: var(--faint); padding: 10px 0 6px; }
+.ios-row { display: flex; }
+.ios-row.me { justify-content: flex-end; }
+.ios-b { max-width: 68%; border-radius: 18px; padding: 8px 13px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; }
+.ios-b.me { background: #0a84ff; color: #ffffff; border-bottom-right-radius: 5px; }
+.ios-b.me.sms { background: #30c04f; border-bottom-right-radius: 5px; }
+.ios-b.them { background: #e9e9eb; color: #1c1c1e; border-bottom-left-radius: 5px; }
+.ios-meta { text-align: right; font-size: 11px; color: var(--faint); padding: 3px 4px 7px; }
+.ios-meta .ok { color: var(--green); }
+.ios-meta .bad { color: var(--red); }
+
+/* Notes: a color dot + label says what the note is about */
+.note-kind { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.note-kind-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
