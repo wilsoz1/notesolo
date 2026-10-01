@@ -28,6 +28,7 @@ const useHash = () => {
 const NAV = [
   { href: '#/app', key: '', icon: Ico.status, label: 'Home' },
   { href: '#/app/portfolio', key: 'portfolio', icon: Ico.doc, label: 'Loans' },
+  { href: '#/app/pipeline', key: 'pipeline', icon: Ico.filter, label: 'Pipeline' },
   { href: '#/app/borrowers', key: 'borrowers', icon: Ico.building, label: 'Businesses' },
   { href: '#/app/guarantors', key: 'guarantors', icon: Ico.person, label: 'Guarantors' },
   { href: '#/app/deposits', key: 'deposits', icon: Ico.dollar, label: 'Deposits' },
@@ -44,6 +45,7 @@ const SAVED_VIEWS = [
   { label: 'Watchlist', dot: '#e07b39' },
 ]
 const SEGMENTS = ['C&I', 'CRE — Investor', 'CRE — Owner-Occupied', 'SBA', 'Multifamily', 'Participations']
+const TICKLERS = ['Personal financial statement', 'Personal tax return', 'Business tax return', 'Quarterly income statement']
 // Detail routes highlight their parent section.
 const PARENT: Record<string, string> = { loans: 'portfolio' }
 
@@ -108,6 +110,7 @@ export default function App() {
     : !authed ? null
     : !app.org ? <Onboarding app={app} />
     : sub === 'loans' && subId ? <LoanPage org={app.org} loanId={subId} initialTab={sub2} />
+    : sub === 'pipeline' ? <Loans org={app.org} pipeline />
     : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' || sub === 'guarantors' || sub === 'deposits' ? <Loans org={app.org} />
     : sub === 'reports' ? <Reports org={app.org} />
     : sub === 'screener' ? <Screener org={app.org} />
@@ -125,6 +128,10 @@ export default function App() {
         <div className="side-group">Saved views <span className="plus">+</span></div>
         {SAVED_VIEWS.map(v => (
           <a key={v.label} href="#/app/portfolio"><span className="sv-dot" style={{ background: v.dot }} /> {v.label}</a>
+        ))}
+        <div className="side-group">Ticklers <span className="plus">+</span></div>
+        {TICKLERS.map(t => (
+          <a key={t} href="#/app/portfolio"><Ico.cal /> {t}</a>
         ))}
         <div className="side-group">Segments <span className="plus">+</span></div>
         {SEGMENTS.map(sg => (

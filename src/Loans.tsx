@@ -36,7 +36,9 @@ const rateKey = (r: string | null) => {
   return n > 50 ? n / 100 : n
 }
 
-export default function Loans({ org }: { org: Org }) {
+// `pipeline` shows the deals in flight (everything before Servicing);
+// without it, this is the booked portfolio.
+export default function Loans({ org, pipeline }: { org: Org; pipeline?: boolean }) {
   const [loans, setLoans] = useState<DbLoan[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [reviewMap, setReviewMap] = useState<Record<string, Review[]>>({})
@@ -54,7 +56,8 @@ export default function Loans({ org }: { org: Org }) {
       supabase.from('covenants').select('loan_id'),
       supabase.from('ticklers').select('loan_id, requirement'),
     ]).then(([l, p, cov, tick]) => {
-      setLoans((l.data as DbLoan[]) ?? [])
+      const all = (l.data as DbLoan[]) ?? []
+      setLoans(all.filter(x => pipeline ? x.stage !== 'Servicing' : x.stage === 'Servicing'))
       setPayments((p.data as Payment[]) ?? [])
       // A loan is under covenant review if it has covenants; under annual review if a tickler says so.
       const map: Record<string, Review[]> = {}
@@ -68,7 +71,7 @@ export default function Loans({ org }: { org: Org }) {
       setReviewMap(map)
       setLoading(false)
     })
-  }, [org.id, reloadKey])
+  }, [org.id, reloadKey, pipeline])
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!popRef.current?.contains(e.target as Node)) setFiltersOpen(false) }
@@ -135,13 +138,13 @@ export default function Loans({ org }: { org: Org }) {
     </th>
   )
 
-  if (loading) return <p className="subtitle">Loading portfolio…</p>
+  if (loading) return <p className="subtitle">Loading {pipeline ? 'pipeline' : 'portfolio'}…</p>
 
   return (
     <>
-      <h1>Portfolio</h1>
+      <h1>{pipeline ? 'Pipeline' : 'Portfolio'}</h1>
       <p className="subtitle">
-        {rows.length} of {loans.length} loans · {money(rows.reduce((s, l) => s + Number(l.amount), 0))} shown.
+        {rows.length} of {loans.length} {pipeline ? 'deals in flight — screening, underwriting, approval, closing' : 'loans'} · {money(rows.reduce((s, l) => s + Number(l.amount), 0))} shown.
         Open a loan for everything on it — borrower, guarantors, cash flow, documents.
       </p>
 

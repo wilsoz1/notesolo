@@ -319,8 +319,8 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
             },
           })
         }
-        toast(biz ? 'Loan created — financials spread onto the borrower as a draft' : 'Loan created from the package')
-        window.location.hash = `#/app/loans/${newLoan.id}${biz ? '/Spreads' : ''}`
+        toast(biz ? 'Added to the pipeline — financials spread onto the borrower as a draft' : 'Added to the pipeline')
+        window.location.hash = '#/app/pipeline'
       }
       return
     }
@@ -345,7 +345,7 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
         <span className="small">{docs.length} document{docs.length === 1 ? '' : 's'} in package{pfs ? ' · guarantor PFS attached' : ''}{purchase ? ' · purchase agreement attached' : ''}</span>
       </div>
       <span className="spacer" />
-      <button className="btn-dark" onClick={create} disabled={added}>{org ? 'Create loan from package' : 'Add to portfolio'} <Ico.plus /></button>
+      <button className="btn-dark" onClick={create} disabled={added}>{org ? 'Add to pipeline' : 'Add to pipeline (demo)'} <Ico.plus /></button>
     </div>
   )
 }
