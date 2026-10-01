@@ -774,18 +774,18 @@ a.rp-stat:hover { background: #fbfaf8; }
 .rp-stat .n.ok { color: var(--green); }
 .rp-stat .n.bad { color: var(--red); }
 
-/* ═══════════════ Loan page: vertical progressive disclosure ═══════════════ */
-.loan-secs { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
-.loan-sec { padding: 0 18px; }
-.loan-sec > summary { padding: 13px 0; font-size: 14px; }
-.loan-sec > summary b { font-size: 14px; }
-.loan-sec > summary .tab-badge { margin-left: 2px; }
-.loan-sec-body { padding: 2px 0 16px; }
-.loan-sec-body .grid:last-child { margin-bottom: 0; }
+/* ═══════════════ Loan page: second sidebar for the record + vertical content ═══════════════ */
+.loan-layout { display: flex; gap: 24px; align-items: flex-start; margin-top: 16px; }
+.loan-nav { width: 172px; flex-shrink: 0; position: sticky; top: 16px; display: flex; flex-direction: column; gap: 1px; border-right: 1px solid var(--line-2); padding-right: 12px; min-height: 320px; }
+.loan-nav button { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: none; background: none; font: inherit; font-size: 13.5px; color: var(--sub); text-align: left; border-radius: 7px; cursor: pointer; }
+.loan-nav button:hover { background: var(--hover); color: var(--ink); }
+.loan-nav button.on { background: #ececf1; color: var(--ink); font-weight: 600; }
+.loan-main { flex: 1 1 0; min-width: 0; }
 /* No horizontal scrolling: cells wrap instead (numbers stay on one line) */
-.loan-sec-body .grid { overflow-x: visible; }
-.loan-sec-body td, .loan-sec-body th { white-space: normal; }
-.loan-sec-body td.mono, .loan-sec-body .mono, .loan-sec-body td.num { white-space: nowrap; }
+.loan-main .grid { overflow-x: visible; }
+.loan-main td, .loan-main th { white-space: normal; }
+.loan-main td.mono, .loan-main .mono, .loan-main td.num { white-space: nowrap; }
+@media (max-width: 900px) { .loan-layout { flex-direction: column; } .loan-nav { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--line-2); padding: 0 0 8px; min-height: 0; } }
 
 /* Spreads: columns pulled close together instead of stretched across the page */
 table.spread-tight { width: auto; min-width: 0; }

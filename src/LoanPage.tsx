@@ -16,26 +16,18 @@ const covCls = { Pass: 's-green', Near: 's-amber', Fail: 's-red' } as const
 type CovTest = { id: string; tested_at: string; actual: string; status: 'Pass' | 'Near' | 'Fail'; covenant_id: string }
 type Tab = string
 
-// One page, progressive disclosure: every former tab is a vertical section that
-// opens on demand. Sections with live problems start open; the rest stay folded.
-function Section({ id, title, sub, badge, badgeCls, defaultOpen, children }: {
-  id: string; title: string; sub?: string; badge?: number; badgeCls?: string
-  defaultOpen?: boolean; children: React.ReactNode
-}) {
-  return (
-    <details
-      className="rr-card loan-sec" id={`sec-${id}`}
-      ref={el => { if (el && !el.dataset.init) { el.open = !!defaultOpen; el.dataset.init = '1' } }}
-    >
-      <summary>
-        <b>{title}</b>
-        {sub && <span className="small">{sub}</span>}
-        {badge ? <span className={`tab-badge ${badgeCls ?? 'amber'}`}>{badge}</span> : null}
-      </summary>
-      <div className="loan-sec-body">{children}</div>
-    </details>
-  )
-}
+// Inside a loan, a SECOND sidebar navigates the record (the app sidebar stays
+// put). Clicking an item swaps the main area to that section, laid out vertically.
+const LOAN_NAV: { key: string; label: string }[] = [
+  { key: 'Overview', label: 'Overview' },
+  { key: 'Borrower', label: 'Borrower' },
+  { key: 'Payments', label: 'Payments' },
+  { key: 'Spreads', label: 'Financials' },
+  { key: 'Compliance', label: 'Compliance' },
+  { key: 'Structure', label: 'Structure' },
+  { key: 'Documents', label: 'Documents' },
+  { key: 'Activity', label: 'Communication' },
+]
 
 // Notes carry a color by what they're about — classified from the text itself.
 const NOTE_KINDS: [RegExp, string, string][] = [
@@ -84,15 +76,13 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
   const [deposits, setDeposits] = useState<Deposit[]>([])
   const [lines, setLines] = useState<CreditLine[]>([])
   const [loading, setLoading] = useState(true)
-  // Deep links (`…/loans/<id>/Payments`) open and scroll to that section.
+  const [sel, setSel] = useState<Tab>(LOAN_NAV.some(n => n.key === initialTab) ? initialTab! : 'Overview')
+  // Deep links (`…/loans/<id>/Payments`) select that section.
   const setTab = (t: Tab) => {
-    const el = document.getElementById(`sec-${t}`) as HTMLDetailsElement | null
-    if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+    setSel(t)
+    window.scrollTo({ top: 0 })
     history.replaceState(null, '', `#/app/loans/${loanId}/${encodeURIComponent(t)}`)
   }
-  useEffect(() => {
-    if (!loading && initialTab) setTimeout(() => setTab(initialTab), 80)
-  }, [loading])  // eslint-disable-line react-hooks/exhaustive-deps
   const load = async () => {
     const { data: l } = await supabase.from('loans').select('*, customers(name, company, email, phone)').eq('id', loanId).single()
     setLoan((l as DbLoan) ?? null)
@@ -222,49 +212,45 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
         </div>
       )}
 
-      <div className="loan-secs">
-        <Overview {...{ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, setTab }} />
+      <div className="loan-layout">
+        <nav className="loan-nav" aria-label="Loan sections">
+          {LOAN_NAV.map(n => {
+            const badge =
+              n.key === 'Payments' ? (overdue.length ? { n: overdue.length, cls: 'red' } : null)
+              : n.key === 'Spreads' ? (draftSpreads.length ? { n: draftSpreads.length, cls: 'amber' } : null)
+              : n.key === 'Compliance' ? (covFails.length + tickPastDue.length ? { n: covFails.length + tickPastDue.length, cls: covFails.length ? 'red' : 'amber' } : null)
+              : n.key === 'Documents' ? (docsReview.length ? { n: docsReview.length, cls: 'amber' } : null)
+              : null
+            return (
+              <button key={n.key} className={sel === n.key ? 'on' : ''} onClick={() => setTab(n.key)}>
+                {n.label}
+                {badge && <span className={`tab-badge ${badge.cls}`}>{badge.n}</span>}
+              </button>
+            )
+          })}
+        </nav>
 
-        <Section id="Borrower" title="Borrower & relationship"
-          sub={`${loan.customers?.company ?? '—'} · ${relLoans.length} loan${relLoans.length === 1 ? '' : 's'} · ${relGuarantors.length} guarantor${relGuarantors.length === 1 ? '' : 's'}`}>
-          <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} />
-        </Section>
-
-        <Section id="Payments" title="Payments"
-          sub={loan.next_payment_amount ? `next ${money(loan.next_payment_amount)} · ${fmtDate(loan.next_payment_date)}` : 'balances & history'}
-          badge={overdue.length || undefined} badgeCls="red" defaultOpen={overdue.length > 0}>
-          <PaymentsTab loan={loan} payments={payments} />
-        </Section>
-
-        <Section id="Spreads" title="Financials — spreads & cash flow"
-          sub={`${spreads.length} period${spreads.length === 1 ? '' : 's'} · cash flow is editable below`}
-          badge={draftSpreads.length || undefined} badgeCls="amber" defaultOpen={draftSpreads.length > 0}>
-          <SpreadsTab loan={loan} spreads={spreads} onChange={load} />
-          {loan.customer_id && (
-            <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
-          )}
-        </Section>
-
-        <Section id="Compliance" title="Compliance"
-          sub={`${covenants.length} covenant${covenants.length === 1 ? '' : 's'} · ${ticklers.length} tickler${ticklers.length === 1 ? '' : 's'} · annual review`}
-          badge={covFails.length + tickPastDue.length || undefined} badgeCls={covFails.length ? 'red' : 'amber'}
-          defaultOpen={covFails.length + tickPastDue.length > 0}>
-          <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
-          <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
-        </Section>
-
-        <Section id="Structure" title="Structure & terms" sub={`${loan.payment_type} · ${loan.rate ?? '—'} · mat. ${fmtDate(loan.maturity)}`}>
-          <StructureTab loan={loan} guarantors={guarantors} />
-        </Section>
-
-        <Section id="Documents" title="Documents & sharing" sub={`${docs.length} file${docs.length === 1 ? '' : 's'} · ${links.filter(l => !l.revoked).length} share link${links.filter(l => !l.revoked).length === 1 ? '' : 's'}`}
-          badge={docsReview.length || undefined} defaultOpen={docsReview.length > 0}>
-          <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />
-        </Section>
-
-        <Section id="Activity" title="Communication & notes" sub={`${outreach.length} message${outreach.length === 1 ? '' : 's'} · ${notes.length} note${notes.length === 1 ? '' : 's'}`}>
-          <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />
-        </Section>
+        <div className="loan-main">
+          {sel === 'Overview' && <>
+            <Overview {...{ overdue, covFails, covNear, tickPastDue, stalePfs, docsReview, setTab }} />
+            <StructureTab loan={loan} guarantors={guarantors} />
+          </>}
+          {sel === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} />}
+          {sel === 'Payments' && <PaymentsTab loan={loan} payments={payments} />}
+          {sel === 'Spreads' && <>
+            <SpreadsTab loan={loan} spreads={spreads} onChange={load} />
+            {loan.customer_id && (
+              <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
+            )}
+          </>}
+          {sel === 'Compliance' && <>
+            <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
+            <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
+          </>}
+          {sel === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
+          {sel === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
+          {sel === 'Activity' && <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />}
+        </div>
       </div>
     </>
   )
@@ -290,7 +276,11 @@ function Overview({ overdue, covFails, covNear, tickPastDue, stalePfs, docsRevie
     ...stalePfs.map(g => ({ sev: 'amber' as const, text: `${g.name}'s personal financial statement is over a year old (${fmtDate(g.pfs_date)})`, tab: 'Structure' as Tab })),
     ...docsReview.map(d => ({ sev: 'amber' as const, text: `Document needs review: ${d.filename}`, tab: 'Documents' as Tab })),
   ]
-  if (!items.length) return null
+  if (!items.length) return (
+    <Card title="Needs attention">
+      <p className="small" style={{ padding: 14 }}><Ico.check /> Nothing needs attention. Payments current, covenants in compliance, reporting up to date.</p>
+    </Card>
+  )
   return (
     <Card title="Needs attention" sub={`${items.length} item${items.length > 1 ? 's' : ''}`}>
       {items.map((it, i) => (
