@@ -49,13 +49,6 @@ const cellText = (v: unknown): string => {
   return v === 'Servicing' ? 'Active' : String(v)
 }
 
-const SUGGESTIONS = [
-  'loans from 1-5MM with a guarantor FICO below 700',
-  'which loans are interest-only?',
-  'covenants failing right now',
-  'deposits over $200K',
-]
-
 export function Chat() {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [q, setQ] = useState('')
@@ -84,7 +77,7 @@ export function Chat() {
   return (
     <div className="grid" style={{ marginBottom: 20 }}>
       <div className="uw-head">
-        <span><b>Ask your portfolio</b> <span className="small">open-source models on your own hardware — answers come only from your data</span></span>
+        <span><b>Ask your portfolio</b></span>
         {msgs.length > 0 && <button className="linkish" onClick={() => setMsgs([])}>Clear</button>}
       </div>
 
@@ -96,9 +89,7 @@ export function Chat() {
       ) : (
         <>
           {msgs.length === 0 && !busy && (
-            <div className="chat-sugs">
-              {SUGGESTIONS.map(s => <button key={s} className="f-chip" onClick={() => send(s)}>{s}</button>)}
-            </div>
+            <p className="small" style={{ padding: '18px 14px 22px', textAlign: 'center', color: 'var(--faint)' }}>Ask anything about your portfolio.</p>
           )}
           {(msgs.length > 0 || busy) && (
             <div className="chat-msgs" ref={scroller}>
@@ -120,17 +111,17 @@ export function Chat() {
                   )}
                 </div>
               ))}
-              {busy && <div className="chat-b a"><span className="spin" /> Planning the query, checking your book…</div>}
+              {busy && <div className="chat-b a"><span className="spin" /> Thinking…</div>}
             </div>
           )}
-          <form className="askbar" onSubmit={e => { e.preventDefault(); send(q) }}>
+          <form className="askbar minimal" onSubmit={e => { e.preventDefault(); send(q) }}>
             <Ico.search />
             <input
               value={q} onChange={e => setQ(e.target.value)} required
               aria-label="Ask your portfolio"
-              placeholder='e.g. "loans from 1-5MM with a guarantor FICO below 700" — follow-ups welcome'
+              placeholder="Ask anything"
             />
-            <button className="btn-dark" disabled={busy}>{busy ? 'Thinking…' : 'Ask'}</button>
+            <button disabled={busy} aria-label="Send">↑</button>
           </form>
         </>
       )}

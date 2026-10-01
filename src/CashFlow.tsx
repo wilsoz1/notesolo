@@ -266,9 +266,9 @@ export function CashFlowPanel({ org, customerId, guarantors, spreads, loans }: {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           {/* Keyed by scenario: the uncontrolled inputs must remount when switching. */}
-          <table key={active.id}>
+          <table key={active.id} className="spread-tight">
             <thead><tr>
-              <th>Line</th>
+              <th style={{ width: 160 }}>Line</th>
               {cols.map(c => <th key={c.period} style={cell}>{c.period}</th>)}
               <th />
             </tr></thead>
