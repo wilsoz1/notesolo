@@ -37,7 +37,7 @@ export function ChatBubble() {
 
 // ——— Portfolio chat: conversational Q&A over the book ———
 
-type ChatMsg = { role: 'user' | 'assistant'; text: string; rows?: Record<string, unknown>[] }
+type ChatMsg = { role: 'user' | 'assistant'; text: string; rows?: Record<string, unknown>[]; plan?: Record<string, unknown> }
 
 const cellText = (v: unknown): string => {
   if (v == null) return '—'
@@ -70,7 +70,7 @@ export function Chat() {
     const out = await aiAsk(text, history.slice(-4))
     setBusy(false)
     setMsgs(m => [...m, out
-      ? { role: 'assistant', text: out.answer, rows: out.rows }
+      ? { role: 'assistant', text: out.answer, rows: out.rows, plan: out.plan }
       : { role: 'assistant', text: 'I could not reach the models — is the gateway running? Start it with server/run-local.sh, then try again.' }])
   }
 
@@ -96,6 +96,7 @@ export function Chat() {
               {msgs.map((m, i) => (
                 <div key={i} className={`chat-b ${m.role === 'user' ? 'u' : 'a'}`}>
                   <div>{m.text}</div>
+                  {m.plan && <PlanLine plan={m.plan} />}
                   {m.rows && m.rows.length > 0 && (
                     <div style={{ overflowX: 'auto', marginTop: 8 }}>
                       <table className="chat-table">
@@ -125,6 +126,30 @@ export function Chat() {
           </form>
         </>
       )}
+    </div>
+  )
+}
+
+// Trust through provenance: every answer can show the exact deterministic
+// query it ran — the model plans the filter, the database does the math.
+function PlanLine({ plan }: { plan: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  const pretty = () => {
+    const p = plan as { table?: string; filters?: { field: string; op: string; value: unknown }[]; guarantor_filters?: { field: string; op: string; value: unknown }[]; order_by?: string }
+    const parts = [
+      p.table ? `table: ${p.table}` : null,
+      ...((p.filters ?? []).map(f => `${f.field} ${f.op} ${f.value}`)),
+      ...((p.guarantor_filters ?? []).map(f => `guarantor.${f.field} ${f.op} ${f.value}`)),
+      p.order_by ? `order by ${p.order_by}` : null,
+    ].filter(Boolean)
+    return parts.length ? parts.join(' · ') : JSON.stringify(plan)
+  }
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button className="linkish" style={{ fontSize: 12 }} onClick={() => setOpen(o => !o)}>
+        {open ? 'hide the query' : 'show the query'}
+      </button>
+      {open && <div className="small mono" style={{ marginTop: 4, color: 'var(--faint)' }}>{pretty()}</div>}
     </div>
   )
 }

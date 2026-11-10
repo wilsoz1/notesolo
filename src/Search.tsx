@@ -10,11 +10,17 @@ export default function Search() {
   const [hits, setHits] = useState<Hit[]>([])
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const key = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); input.current?.focus() }
+      if (e.key === 'Escape') { setOpen(false); input.current?.blur() }
+    }
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key) }
   }, [])
 
   useEffect(() => {
@@ -49,7 +55,7 @@ export default function Search() {
   return (
     <div className="gsearch" ref={box}>
       <Ico.search />
-      <input aria-label="Search borrowers and loans" placeholder="Search…" value={q}
+      <input ref={input} aria-label="Search borrowers and loans" placeholder="Search…  ⌘K" value={q}
         onChange={e => setQ(e.target.value)} onFocus={() => q.length >= 2 && setOpen(true)} />
       {open && hits.length > 0 && (
         <div className="gsearch-pop">

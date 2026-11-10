@@ -216,6 +216,8 @@ export default function Reports({ org }: { org: Org }) {
         </div>
       )}
 
+      <details className="rr-card rep-fold">
+        <summary>Cohorts <span className="small">by revenue threshold and loan type</span></summary>
       <div className="two-col">
         <div className="grid" style={{ marginBottom: 20 }}>
           <div className="uw-head">
@@ -259,9 +261,15 @@ export default function Reports({ org }: { org: Org }) {
           </table>
         </div>
       </div>
+      </details>
 
-      <RateSensitivity customers={customers} loans={loans} spreads={spreads} scenarios={scenarios} guarantors={guarantors} />
+      <details className="rr-card rep-fold">
+        <summary>Interest-rate sensitivity <span className="small">floating exposure, shocked DSCRs, break-evens</span></summary>
+        <RateSensitivity customers={customers} loans={loans} spreads={spreads} scenarios={scenarios} guarantors={guarantors} />
+      </details>
 
+      <details className="rr-card rep-fold">
+        <summary>Combined income statement &amp; balance sheet <span className="small">the whole book as one entity</span></summary>
       <div className="grid" style={{ marginBottom: 20 }}>
         <div className="uw-head"><span><b>Combined income statement &amp; balance sheet</b> <span className="small">
           {allYears.map(y => `${y}: ${reporting[y]} reporting`).join(' · ')}{prevY && lastY ? ` · YoY on the ${model.matched.length} entities in both years` : ''}
@@ -292,6 +300,10 @@ export default function Reports({ org }: { org: Org }) {
         </div>
       </div>
 
+      </details>
+
+      <details className="rr-card rep-fold">
+        <summary>By entity <span className="small">latest fiscal year, sorted by revenue</span></summary>
       <div className="grid">
         <div className="uw-head"><span><b>By entity</b> <span className="small">latest fiscal year, sorted by revenue</span></span></div>
         <div style={{ overflowX: 'auto' }}>
@@ -333,6 +345,7 @@ export default function Reports({ org }: { org: Org }) {
           entities reporting both years, so coverage changes never masquerade as performance.
         </p>
       </div>
+      </details>
     </>
   )
 }

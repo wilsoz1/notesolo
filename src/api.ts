@@ -73,7 +73,7 @@ export async function gatewayHealth(): Promise<'off' | 'mock' | 'up' | 'down'> {
 export const aiSpread = (documentId: string) => gw('/api/spread', { document_id: documentId })
 export const aiClassify = (documentId: string) => gw('/api/classify', { document_id: documentId })
 export const aiAsk = (question: string, history?: { question: string; answer: string }[]) =>
-  gw('/api/ask', { question, history: history ?? [] }) as Promise<{ answer: string; rows: Record<string, unknown>[] } | null>
+  gw('/api/ask', { question, history: history ?? [] }) as Promise<{ answer: string; rows: Record<string, unknown>[]; plan?: Record<string, unknown> } | null>
 export const aiDraft = (kind: 'annual_review' | 'brief' | 'credit_memo', loanId?: string, dealId?: string) =>
   gw('/api/draft', { kind, loan_id: loanId ?? null, deal_id: dealId ?? null }) as Promise<{ markdown: string } | null>
 

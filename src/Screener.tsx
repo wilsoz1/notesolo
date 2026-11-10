@@ -1,7 +1,7 @@
 // The screener takes a whole screening package — as many documents as the banker has.
 // Each one is OCR'd, named by content, and spread with a schema for its kind; the
 // primary document (business financials or a property OM) drives the underwriting.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DealSheet, FIELD_DEFS, SECTIONS, BIZ_FIELD_DEFS, SECTIONS_BIZ, KIND_META, DEFAULT_POLICY, Policy, underwrite, underwriteBiz, Field } from './types'
 import { API_URL, STEPS, extractMemo } from './api'
 import { loans } from './data'
@@ -43,9 +43,24 @@ const headline = (deal?: DealSheet) => {
 }
 
 export default function Screener({ org }: { org: Org | null }) {
-  const [docs, setDocs] = useState<Doc[]>([])
+  // A finished package must survive a reload: completed extractions persist per
+  // org (staged Files can't — the browser forbids serializing them).
+  const storageKey = `notesolo.screener.${org?.id ?? 'public'}`
+  const [docs, setDocs] = useState<Doc[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as Doc[]
+      return Array.isArray(saved) ? saved.filter(d => d.status === 'done' || d.status === 'error') : []
+    } catch { return [] }
+  })
+  const [restored] = useState(() => docs.length > 0)
   const [policy, setPolicy] = useState<Policy>(DEFAULT_POLICY)
   const [amount, setAmount] = useState<number | null>(null)
+  useEffect(() => {
+    try {
+      const keep = docs.filter(d => d.status === 'done' || d.status === 'error').map(d => ({ ...d, file: undefined }))
+      keep.length ? localStorage.setItem(storageKey, JSON.stringify(keep)) : localStorage.removeItem(storageKey)
+    } catch { /* storage unavailable — results just won't survive reload */ }
+  }, [docs, storageKey])
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const busy = docs.some(d => d.status === 'running')
@@ -57,12 +72,13 @@ export default function Screener({ org }: { org: Org | null }) {
   }
 
   const processOne = async (doc: Doc, sample?: 'om' | 'tax_return') => {
-    setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'running', step: 0 } : d)))
+    const t0 = Date.now()
+    setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'running', step: 0, t0 } : d)))
     try {
       const deal = await extractMemo(doc.file ?? null, step => setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, step } : d))), sample)
-      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'done', deal, file: undefined } : d)))
+      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'done', deal, file: undefined, dur: (Date.now() - t0) / 1000 } : d)))
     } catch (e) {
-      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'error', err: (e as Error).message } : d)))
+      setDocs(ds => ds.map(d => (d.id === doc.id ? { ...d, status: 'error', err: (e as Error).message, dur: (Date.now() - t0) / 1000 } : d)))
     }
   }
 
@@ -98,7 +114,10 @@ export default function Screener({ org }: { org: Org | null }) {
   const hasBiz = pkgDeals.some(d => d.kind && d.kind !== 'cre_property')
   const missN = hasBiz ? missingCount(pkgDeals) : 0
   const progress = docs.length ? (done.length + (runningD ? (runningD.step + 1) / STEPS.length : 0)) / docs.length : 0
-  const remaining = docs.length - done.length - docs.filter(d => d.status === 'error').length
+  const durs = docs.filter(d => d.dur).map(d => d.dur!)
+  const avgDur = durs.length ? durs.reduce((s, d) => s + d, 0) / durs.length : 150
+  const etaSecs = stagedN * avgDur + (runningD?.t0 ? Math.max(avgDur - (Date.now() - runningD.t0) / 1000, 15) : 0)
+  const etaMin = Math.max(1, Math.round(etaSecs / 60))
 
   return (
     <>
@@ -165,9 +184,12 @@ export default function Screener({ org }: { org: Org | null }) {
                 <button className="btn-light" onClick={() => setDocs([])} disabled={busy}>Start over</button>
               </span>
             </div>
+            {restored && !busy && stagedN === 0 && (
+              <div className="pv-progress"><span className="small">Restored from your last session — results kept; staged files need re-adding. <button className="linkish" onClick={() => setDocs([])}>Start over</button> to clear.</span></div>
+            )}
             {busy && (
               <div className="pv-progress">
-                <span className="small"><b>{done.length} of {docs.length}</b> · about {Math.max(remaining * 2, 1)} min left · keep this tab open</span>
+                <span className="small"><b>{done.length} of {docs.length}</b> · ~{etaMin} min left{durs.length ? ` (measured ${Math.round(avgDur / 60)} min/doc)` : ''} · keep this tab open</span>
                 <span className="small" style={{ marginLeft: 'auto' }}>{STEPS.join(' → ')}</span>
                 <div className="pv-bar"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>
               </div>

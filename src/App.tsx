@@ -4,6 +4,8 @@ import Screener from './Screener'
 import Dashboard from './Dashboard'
 import Loans from './Loans'
 import LoanPage from './LoanPage'
+import Documents from './Documents'
+import { Businesses, Guarantors, Deposits } from './Directory'
 import Reports from './Reports'
 import Search from './Search'
 import SharePage from './SharePage'
@@ -32,29 +34,49 @@ const NAV = [
   { href: '#/app/borrowers', key: 'borrowers', icon: Ico.building, label: 'Businesses' },
   { href: '#/app/guarantors', key: 'guarantors', icon: Ico.person, label: 'Guarantors' },
   { href: '#/app/deposits', key: 'deposits', icon: Ico.dollar, label: 'Deposits' },
+  { href: '#/app/documents', key: 'documents', icon: Ico.text, label: 'Documents' },
   { href: '#/app/screener', key: 'screener', icon: Ico.search, label: 'Screener' },
   { href: '#/app/reports', key: 'reports', icon: Ico.percent, label: 'Reports' },
 ]
-// Saved portfolio views and book segments (wired to the portfolio; filters come next).
+// Saved views, tickler queues, and segments — each is a REAL portfolio preset
+// (the slug rides the hash query; Loans applies the matching filter).
 const SAVED_VIEWS = [
-  { label: 'Covenants & Annual Reviews', dot: '#4f63f5' },
-  { label: 'Late Pays', dot: '#d33030' },
-  { label: 'Upcoming Maturities', dot: '#b45309' },
-  { label: 'Construction', dot: '#7c5cd6' },
-  { label: 'Modifications', dot: '#0d8a99' },
-  { label: 'Watchlist', dot: '#e07b39' },
+  { label: 'Covenants & Annual Reviews', dot: '#4f63f5', slug: 'covenants-reviews' },
+  { label: 'Late Pays', dot: '#d33030', slug: 'late-pays' },
+  { label: 'Upcoming Maturities', dot: '#b45309', slug: 'maturities' },
+  { label: 'Construction', dot: '#7c5cd6', slug: 'construction' },
+  { label: 'Modifications', dot: '#0d8a99', slug: 'modifications' },
+  { label: 'Watchlist', dot: '#e07b39', slug: 'watchlist' },
 ]
-const SEGMENTS = ['C&I', 'CRE — Investor', 'CRE — Owner-Occupied', 'SBA', 'Multifamily', 'Participations']
-const TICKLERS = ['Personal financial statement', 'Personal tax return', 'Business tax return', 'Quarterly income statement']
+const SEGMENTS = [
+  { label: 'C&I', slug: 'ci' },
+  { label: 'CRE — Investor', slug: 'cre-inv' },
+  { label: 'CRE — Owner-Occupied', slug: 'cre-oo' },
+  { label: 'SBA', slug: 'sba' },
+  { label: 'Multifamily', slug: 'multifamily' },
+  { label: 'Participations', slug: 'participations' },
+]
+const TICKLERS = [
+  { label: 'Personal financial statement', slug: 'pfs' },
+  { label: 'Personal tax return', slug: 'personal-tax-return' },
+  { label: 'Business tax return', slug: 'business-tax-return' },
+  { label: 'Quarterly income statement', slug: 'quarterly-income' },
+]
 // Detail routes highlight their parent section.
 const PARENT: Record<string, string> = { loans: 'portfolio' }
 
 export default function App() {
   const hash = useHash()
   const app = useSession()
-  const route = hash.replace(/^#\//, '')
-  const parts = route.split('/').map(decodeURIComponent)
+  const [path, qs] = hash.replace(/^#\//, '').split('?')
+  const query = new URLSearchParams(qs ?? '')
+  const parts = path.split('/').map(decodeURIComponent)
   const [section, sub, subId, sub2] = parts
+  // Portfolio presets ride the hash query: ?view=late-pays, ?tick=pfs, ?seg=ci.
+  const preset = query.get('view') ? { group: 'view' as const, slug: query.get('view')! }
+    : query.get('tick') ? { group: 'tick' as const, slug: query.get('tick')! }
+    : query.get('seg') ? { group: 'seg' as const, slug: query.get('seg')! }
+    : undefined
   const authed = !!app.session
 
   useEffect(() => {
@@ -111,10 +133,15 @@ export default function App() {
     : !app.org ? <Onboarding app={app} />
     : sub === 'loans' && subId ? <LoanPage org={app.org} loanId={subId} initialTab={sub2} />
     : sub === 'pipeline' ? <Loans org={app.org} pipeline />
-    : sub === 'portfolio' || sub === 'loans' || sub === 'borrowers' || sub === 'guarantors' || sub === 'deposits' ? <Loans org={app.org} />
+    : sub === 'portfolio' || sub === 'loans' ? <Loans org={app.org} preset={preset} />
+    : sub === 'borrowers' ? <Businesses org={app.org} />
+    : sub === 'guarantors' ? <Guarantors org={app.org} />
+    : sub === 'deposits' ? <Deposits org={app.org} />
+    : sub === 'documents' ? <Documents org={app.org} />
     : sub === 'reports' ? <Reports org={app.org} />
     : sub === 'screener' ? <Screener org={app.org} />
-    : <Dashboard org={app.org} />
+    : sub === undefined || sub === '' ? <Dashboard org={app.org} />
+    : <><h1>Page not found</h1><p className="subtitle">Nothing lives at <span className="mono">{sub}</span> — <a href="#/app">back to Home</a>.</p></>
 
   return (
     <div className="shell">
@@ -127,15 +154,21 @@ export default function App() {
         })}
         <div className="side-group">Saved views <span className="plus">+</span></div>
         {SAVED_VIEWS.map(v => (
-          <a key={v.label} href="#/app/portfolio"><span className="sv-dot" style={{ background: v.dot }} /> {v.label}</a>
+          <a key={v.slug} href={`#/app/portfolio?view=${v.slug}`} className={preset?.group === 'view' && preset.slug === v.slug ? 'on' : ''}>
+            <span className="sv-dot" style={{ background: v.dot }} /> {v.label}
+          </a>
         ))}
         <div className="side-group">Ticklers <span className="plus">+</span></div>
         {TICKLERS.map(t => (
-          <a key={t} href="#/app/portfolio"><Ico.cal /> {t}</a>
+          <a key={t.slug} href={`#/app/portfolio?tick=${t.slug}`} className={preset?.group === 'tick' && preset.slug === t.slug ? 'on' : ''}>
+            <Ico.cal /> {t.label}
+          </a>
         ))}
         <div className="side-group">Segments <span className="plus">+</span></div>
         {SEGMENTS.map(sg => (
-          <a key={sg} href="#/app/portfolio"><Ico.tag /> {sg}</a>
+          <a key={sg.slug} href={`#/app/portfolio?seg=${sg.slug}`} className={preset?.group === 'seg' && preset.slug === sg.slug ? 'on' : ''}>
+            <Ico.tag /> {sg.label}
+          </a>
         ))}
         <div className="side-foot">
           <div className="small" style={{ color: 'inherit' }}>{app.org?.name}</div>

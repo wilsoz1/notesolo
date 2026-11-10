@@ -817,3 +817,10 @@ table.spread-tight { width: auto; min-width: 0; }
 /* Notes: a color dot + label says what the note is about */
 .note-kind { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .note-kind-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Reports: one glance (findings), one click (everything else) */
+.rep-fold { margin-bottom: 14px; padding: 0 16px; }
+.rep-fold > summary { padding: 12px 0; font-size: 14px; font-weight: 650; display: flex; align-items: baseline; gap: 8px; }
+.rep-fold > summary .small { font-weight: 400; }
+.rep-fold[open] > summary { border-bottom: 1px solid var(--line-2); margin-bottom: 14px; }
+.rep-fold .grid:last-child { margin-bottom: 14px; }

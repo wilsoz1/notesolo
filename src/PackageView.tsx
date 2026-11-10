@@ -12,6 +12,8 @@ export type ScreenDoc = {
   deal?: DealSheet
   err?: string
   file?: File | null
+  t0?: number   // when processing started (ms epoch)
+  dur?: number  // seconds the extraction took — feeds the live ETA
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
