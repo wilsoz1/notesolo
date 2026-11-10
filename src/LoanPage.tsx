@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase, DbLoan, Doc, Org, ShareLink, Attempt, Payment, DbCovenant, DbTickler, Guarantor, Note, Spread, Deposit, CreditLine, SPREAD_LINES, money, daysLate, spreadFromDocument, autoTestCovenants } from './supabase'
+import { supabase, DbLoan, Doc, Org, ShareLink, Attempt, Payment, DbCovenant, DbTickler, Guarantor, Note, Spread, Deposit, CreditLine, SPREAD_LINES, money, daysLate, spreadFromDocument, autoTestCovenants, completeMatchingTicklers } from './supabase'
 import { CashFlowPanel } from './CashFlow'
 import { fmtDate } from './Loans'
 import { classifyType } from './Documents'
@@ -12,6 +12,8 @@ import { AnnualReviewCard } from './AnnualReview'
 import { Ico } from './Icons'
 
 const shareUrl = (token: string) => `${window.location.origin}/#/share/${token}`
+// Loans whose covenant auto-test is currently writing — stops double-logging.
+const testingLoans = new Set<string>()
 const covCls = { Pass: 's-green', Near: 's-amber', Fail: 's-red' } as const
 type CovTest = { id: string; tested_at: string; actual: string; status: 'Pass' | 'Near' | 'Fail'; covenant_id: string }
 type Tab = string
@@ -125,22 +127,40 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
 
     // Auto-test computable covenants from the newest reviewed spread and persist any changes —
     // both the current value on the covenant AND an immutable covenant_tests history row,
-    // so every retest leaves a trail an examiner can follow.
+    // so every retest leaves a trail an examiner can follow. Two guards keep the
+    // trail honest: an in-flight lock (concurrent loads were double-logging every
+    // test) and a check against the newest history row before inserting.
     let covRows = (cov.data as DbCovenant[]) ?? []
-    if (l) {
-      const updates = autoTestCovenants(l, freshSpreads, covRows)
-      for (const u of updates) {
-        await supabase.from('covenants').update({ actual: u.actual, status: u.status }).eq('id', u.id)
-        await supabase.from('covenant_tests').insert({
-          org_id: org.id, covenant_id: u.id, loan_id: loanId, actual: u.actual, status: u.status, source: 'auto',
-        })
-        covRows = covRows.map(c => (c.id === u.id ? { ...c, actual: u.actual, status: u.status } : c))
+    let { data: hist } = await supabase.from('covenant_tests')
+      .select('id, tested_at, actual, status, covenant_id')
+      .eq('loan_id', loanId).order('tested_at', { ascending: false }).limit(12)
+    if (l && !testingLoans.has(loanId)) {
+      testingLoans.add(loanId)
+      try {
+        const updates = autoTestCovenants(l, freshSpreads, covRows)
+        let inserted = false
+        for (const u of updates) {
+          await supabase.from('covenants').update({ actual: u.actual, status: u.status }).eq('id', u.id)
+          const last = ((hist as CovTest[]) ?? []).find(h => h.covenant_id === u.id)
+          if (!last || last.actual !== u.actual || last.status !== u.status) {
+            await supabase.from('covenant_tests').insert({
+              org_id: org.id, covenant_id: u.id, loan_id: loanId, actual: u.actual, status: u.status, source: 'auto',
+            })
+            inserted = true
+          }
+          covRows = covRows.map(c => (c.id === u.id ? { ...c, actual: u.actual, status: u.status } : c))
+        }
+        if (inserted) {
+          const fresh = await supabase.from('covenant_tests')
+            .select('id, tested_at, actual, status, covenant_id')
+            .eq('loan_id', loanId).order('tested_at', { ascending: false }).limit(12)
+          hist = fresh.data
+        }
+      } finally {
+        testingLoans.delete(loanId)
       }
     }
     setCovenants(covRows)
-    const { data: hist } = await supabase.from('covenant_tests')
-      .select('id, tested_at, actual, status, covenant_id')
-      .eq('loan_id', loanId).order('tested_at', { ascending: false }).limit(12)
     setCovHistory((hist as CovTest[]) ?? [])
     setLoading(false)
   }
@@ -236,7 +256,7 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
             <StructureTab loan={loan} guarantors={guarantors} />
           </>}
           {sel === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} />}
-          {sel === 'Payments' && <PaymentsTab loan={loan} payments={payments} />}
+          {sel === 'Payments' && <PaymentsTab loan={loan} payments={payments} onChange={load} />}
           {sel === 'Spreads' && <>
             <SpreadsTab loan={loan} spreads={spreads} onChange={load} />
             {loan.customer_id && (
@@ -245,7 +265,7 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
           </>}
           {sel === 'Compliance' && <>
             <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
-            <ComplianceTab covenants={covenants} ticklers={ticklers} history={covHistory} />
+            <ComplianceTab org={org} loanId={loanId} covenants={covenants} ticklers={ticklers} history={covHistory} onChange={load} />
           </>}
           {sel === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
           {sel === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
@@ -371,7 +391,15 @@ function BorrowerTab({ org, loan, relLoans, relGuarantors, deposits, lines }: {
 }
 
 // ——— Payments: balances + history (paid history collapsed) ———
-function PaymentsTab({ loan, payments }: { loan: DbLoan; payments: Payment[] }) {
+function PaymentsTab({ loan, payments, onChange }: { loan: DbLoan; payments: Payment[]; onChange: () => void }) {
+  const markPaid = async (p: Payment) => {
+    const today = new Date().toISOString().slice(0, 10)
+    const late = p.due_date < today
+    if (!(await confirmDialog(`Record ${money(Number(p.amount))} as paid today?`, `Due ${fmtDate(p.due_date)}${late ? ' — will show as paid late' : ''}.`, { confirmText: 'Record payment' }))) return
+    await supabase.from('loan_payments').update({ status: 'paid', paid_date: today }).eq('id', p.id)
+    toast(late ? 'Payment recorded — past-due cleared' : 'Payment recorded')
+    onChange()
+  }
   const [showAll, setShowAll] = useState(false)
   const unpaid = payments.filter(p => p.status !== 'paid')
   const paid = payments.filter(p => p.status === 'paid')
@@ -396,12 +424,17 @@ function PaymentsTab({ loan, payments }: { loan: DbLoan; payments: Payment[] }) 
       <Card title="Payment history" sub="drives the delinquency rules"
         right={paid.length > 3 && <button className="linkish" onClick={() => setShowAll(s => !s)}>{showAll ? 'Show recent' : `Show all ${payments.length}`}</button>}>
         <table>
-          <thead><tr><th>Due</th><th className="num">Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Due</th><th className="num">Amount</th><th>Status</th><th /></tr></thead>
           <tbody>
             {shown.map(p => (
-              <tr key={p.id}><td>{fmtDate(p.due_date)}</td><td className="num mono">{money(p.amount)}</td><td>{payStatus(p)}</td></tr>
+              <tr key={p.id}>
+                <td>{fmtDate(p.due_date)}</td>
+                <td className="num mono">{money(p.amount)}</td>
+                <td>{payStatus(p)}</td>
+                <td>{p.status !== 'paid' && <button className="linkish" onClick={() => markPaid(p)}>Mark paid</button>}</td>
+              </tr>
             ))}
-            {!payments.length && <tr><td colSpan={3} className="small">No payment schedule yet{loan.stage !== 'Servicing' ? ` — loan is in ${loan.stage}.` : '.'}</td></tr>}
+            {!payments.length && <tr><td colSpan={4} className="small">No payment schedule yet{loan.stage !== 'Servicing' ? ` — loan is in ${loan.stage}.` : '.'}</td></tr>}
           </tbody>
         </table>
       </Card>
@@ -431,6 +464,7 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
     const data = Object.fromEntries(SPREAD_LINES.map(([k]) => [k, draft[k] === '' ? null : +draft[k]]))
     await supabase.from('financial_spreads').update({ data, ...(markReviewed ? { status: 'reviewed' } : {}) }).eq('id', s.id)
     setEditing(null)
+    if (markReviewed) toast(`${s.period} reviewed — covenants retest and the cash flow updates now. Next stop: Compliance.`)
     onChange()
   }
   const remove = async (s: Spread) => {
@@ -522,7 +556,7 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
 }
 
 // ——— Compliance: covenants + ticklers + the immutable test trail ———
-const ComplianceTab = ({ covenants, ticklers, history }: { covenants: DbCovenant[]; ticklers: DbTickler[]; history: CovTest[] }) => (
+const ComplianceTab = ({ org, loanId, covenants, ticklers, history, onChange }: { org: Org; loanId: string; covenants: DbCovenant[]; ticklers: DbTickler[]; history: CovTest[]; onChange: () => void }) => (
   <>
     <Card title="Covenants" sub={`${covenants.length} tracked`}>
       <table>
@@ -560,7 +594,7 @@ const ComplianceTab = ({ covenants, ticklers, history }: { covenants: DbCovenant
     )}
     <Card title="Ticklers & reporting" sub="what the loan agreement requires, and when">
       <table>
-        <thead><tr><th>Requirement</th><th>Responsible</th><th>Due</th><th>Status</th></tr></thead>
+        <thead><tr><th>Requirement</th><th>Responsible</th><th>Due</th><th>Status</th><th /></tr></thead>
         <tbody>
           {ticklers.map(t => (
             <tr key={t.id}>
@@ -568,9 +602,39 @@ const ComplianceTab = ({ covenants, ticklers, history }: { covenants: DbCovenant
               <td className="small">{t.responsible}</td>
               <td>{fmtDate(t.due_date)}</td>
               <td>{tickStatus(t)}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                {(t.status === 'open' || t.status === 'requested') && (
+                  <span style={{ display: 'inline-flex', gap: 10 }}>
+                    {t.status === 'open' && (
+                      <button className="linkish" onClick={async () => {
+                        await supabase.from('ticklers').update({ status: 'requested' }).eq('id', t.id)
+                        toast(`${t.requirement} marked requested — send it via Communication or the borrower portal`)
+                        onChange()
+                      }}>Request</button>
+                    )}
+                    <button className="linkish" onClick={async () => {
+                      await supabase.from('ticklers').update({ status: 'complete' }).eq('id', t.id)
+                      toast(`${t.requirement} received — reporting current`)
+                      onChange()
+                    }}>Received</button>
+                    <button className="linkish" onClick={async () => {
+                      const reason = await promptDialog(`Waive "${t.requirement}"?`, 'Reason (goes in the loan notes)')
+                      if (reason === null) return
+                      await supabase.from('ticklers').update({ status: 'waived' }).eq('id', t.id)
+                      const user = (await supabase.auth.getUser()).data.user
+                      await supabase.from('loan_notes').insert({
+                        org_id: org.id, loan_id: loanId, body: `[Waived] ${t.requirement} — ${reason || 'no reason given'}`,
+                        author: (user?.user_metadata?.full_name as string) ?? user?.email ?? 'Unknown', created_by: user?.id,
+                      })
+                      toast(`${t.requirement} waived — noted on the loan`)
+                      onChange()
+                    }}>Waive</button>
+                  </span>
+                )}
+              </td>
             </tr>
           ))}
-          {!ticklers.length && <tr><td colSpan={4} className="small">No ticklers yet.</td></tr>}
+          {!ticklers.length && <tr><td colSpan={5} className="small">No ticklers yet.</td></tr>}
         </tbody>
       </table>
     </Card>
@@ -644,14 +708,23 @@ const DocumentsTab = ({ org, loan, docs, links, onChange }: { org: Org; loan: Db
           org_id: org.id, loan_id: loan.id, customer_id: loan.customer_id,
           filename: file.name, storage_path: path, doc_type: docType, confidence, status: 'routed',
         }).select().single()
-        if (row && loan.customer_id) {
-          if (API_URL) {
-            // Gateway on: OCR + extraction populate the spread with no typing.
-            await aiProcessDocument(row.id, docType, true)
-          } else {
-            // Gateway off: create the empty draft column for manual entry.
-            await spreadFromDocument(org.id, loan.customer_id, row.id, file.name, docType)
+        if (row) {
+          // A matching document closes its own tickler — the loop the analyst
+          // otherwise closes by hand.
+          const closed = await completeMatchingTicklers(loan.id, docType)
+          let spreadNote = ''
+          if (loan.customer_id) {
+            if (API_URL) {
+              // Gateway on: OCR + extraction populate the spread with no typing.
+              await aiProcessDocument(row.id, docType, true)
+              spreadNote = ' · read & spread — review it in Financials'
+            } else {
+              // Gateway off: create the empty draft column for manual entry.
+              const made = await spreadFromDocument(org.id, loan.customer_id, row.id, file.name, docType)
+              if (made) spreadNote = ' · draft spread created — review it in Financials'
+            }
           }
+          toast(`${file.name} filed as ${docType}${closed.length ? ` · tickler completed: ${closed[0]}` : ''}${spreadNote}`)
         }
       }
     }

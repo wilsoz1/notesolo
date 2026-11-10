@@ -55,13 +55,14 @@ export async function runRules(dryRun: boolean) {
 }
 
 /** Create a draft spread shell when a financial document lands on a customer. */
-export async function spreadFromDocument(orgId: string, customerId: string, docId: string, filename: string, docType: string) {
-  if (!SPREAD_DOC_TYPES.includes(docType)) return
+export async function spreadFromDocument(orgId: string, customerId: string, docId: string, filename: string, docType: string): Promise<boolean> {
+  if (!SPREAD_DOC_TYPES.includes(docType)) return false
   const year = filename.match(/20\d{2}/)?.[0]
   await supabase.from('financial_spreads').insert({
     org_id: orgId, customer_id: customerId, source_document_id: docId,
     period: year ? `FY ${year}` : 'New period', statement_type: docType, status: 'draft',
   })
+  return true
 }
 
 // ——— Deterministic covenant auto-testing (no model involved) ———
@@ -114,3 +115,22 @@ export type Attempt = { id: string; channel: string; recipient: string; subject:
 export type Doc = { id: string; filename: string; doc_type: string; confidence: number; status: string; created_at: string; loan_id: string | null; loans: { loan_number: string } | null; customers: { company: string | null } | null }
 
 export const money = (n: number) => `$${Math.round(n).toLocaleString()}`
+
+// A document arriving IS the tickler being satisfied — connect the loop.
+// Returns the requirements it completed so the caller can say so.
+const TICK_DOC_RE: [RegExp, RegExp][] = [
+  [/personal financial statement/i, /personal financial statement|pfs/i],
+  [/tax return/i, /tax return/i],
+  [/financial statement/i, /financial statement|interim/i],
+  [/insurance/i, /insurance/i],
+  [/rent roll/i, /rent roll/i],
+]
+export async function completeMatchingTicklers(loanId: string, docType: string): Promise<string[]> {
+  const docRe = TICK_DOC_RE.find(([d]) => d.test(docType))
+  if (!docRe) return []
+  const { data } = await supabase.from('ticklers')
+    .select('id, requirement, status').eq('loan_id', loanId).in('status', ['open', 'requested'])
+  const hits = ((data as { id: string; requirement: string }[]) ?? []).filter(t => docRe[1].test(t.requirement))
+  for (const t of hits) await supabase.from('ticklers').update({ status: 'complete' }).eq('id', t.id)
+  return hits.map(t => t.requirement)
+}

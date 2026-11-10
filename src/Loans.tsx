@@ -6,6 +6,7 @@ import { supabase, DbLoan, Org, Payment, PaymentType, money, pastDueOf } from '.
 import { ModifyButton } from './Modify'
 import { ImportBook } from './ImportBook'
 import { Ico } from './Icons'
+import { exportCsv } from './csv'
 
 const PAYMENT_TYPES: PaymentType[] = ['P&I', 'I/O', 'Deferred', 'I/O Deferred', 'Construction']
 const stageCls: Record<string, string> = {
@@ -260,6 +261,15 @@ export default function Loans({ org, pipeline, preset }: { org: Org; pipeline?: 
           </span>
         )}
         <span className="spacer" />
+        <button className="btn-light" onClick={() => exportCsv(
+          `${pipeline ? 'pipeline' : 'portfolio'}-${new Date().toISOString().slice(0, 10)}.csv`,
+          ['Loan', 'Borrower', 'Type', 'Stage', 'Payment', 'Past due days', 'Past due amount', 'Amount', 'Rate', 'Maturity', 'Draw period end', 'RM'],
+          rows.map(l => {
+            const pd = pastDueOf(payments, l.id)
+            return [l.loan_number, l.customers?.company ?? '', l.type, l.stage === 'Servicing' ? 'Active' : l.stage, l.payment_type,
+              pd?.days ?? '', pd?.amount ?? '', Number(l.amount), l.rate ?? '', l.maturity ?? '', l.draw_period_end ?? '', l.rm ?? '']
+          }),
+        )}>Export CSV</button>
         <ImportBook org={org} onDone={() => setReloadKey(k => k + 1)} />
       </div>
 

@@ -701,6 +701,7 @@ tr.ratio-row td { background: #fafbfc; color: var(--faint); }
 .task-row:last-child { border-bottom: none; }
 .task-check { width: 16px; height: 16px; flex-shrink: 0; border: 1.5px solid #cdd2d9; border-radius: 5px; background: #fff; cursor: pointer; padding: 0; }
 .task-check:hover { border-color: var(--accent); }
+.task-check.done { background: var(--green); border-color: var(--green); color: #fff; font-size: 11px; line-height: 1; display: grid; place-items: center; }
 .task-row .t { flex: 1; min-width: 0; }
 .task-row .t a { color: var(--accent); text-decoration: none; font-weight: 500; }
 .task-row .t a:hover { text-decoration: underline; }

@@ -76,6 +76,8 @@ function TrendChart({ series, prior, labels }: { series: number[]; prior?: numbe
 
 export default function Dashboard({ org }: { org: Org }) {
   const [items, setItems] = useState<Item[] | null>(null)
+  const [doneKeys, setDoneKeys] = useState<Set<string>>(new Set())
+  const [showDone, setShowDone] = useState(false)
   const [feed, setFeed] = useState<Feed[]>([])
   const [loans, setLoans] = useState<(DbLoan & { customers: { company: string | null } | null })[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -99,7 +101,9 @@ export default function Dashboard({ org }: { org: Org }) {
       supabase.from('financial_spreads').select('*').eq('status', 'reviewed'),
       supabase.from('guarantors').select('*, loans(customer_id)'),
       supabase.from('documents').select('id, filename, doc_type, status, created_at, loan_id').order('created_at', { ascending: false }).limit(8),
-    ]).then(([ln, pay, dep, loc, cov, tick, drafts, cfs, reviewed, guar, docs]) => {
+      supabase.from('task_state').select('key, state'),
+    ]).then(([ln, pay, dep, loc, cov, tick, drafts, cfs, reviewed, guar, docs, ts]) => {
+      setDoneKeys(new Set(((ts.data as { key: string; state: string }[]) ?? []).filter(t => t.state === 'done').map(t => t.key)))
       const allLoans = (ln.data as unknown as (DbLoan & { customers: { company: string | null } | null })[]) ?? []
       const allPayments = (pay.data as Payment[]) ?? []
       const allCovs = (cov.data as DbCovenant[]) ?? []
@@ -254,6 +258,7 @@ export default function Dashboard({ org }: { org: Org }) {
     .slice(0, 6)
     .map(c => ({ ...c, loan: loans.find(l => l.id === c.loan_id) }))
 
+  const keyOf = (it: Item) => `${it.chip}|${it.href}|${it.text}`.slice(0, 300)
   const GROUPS: { chip: string; label: string }[] = [
     { chip: 'past due', label: 'Past-due payments' },
     { chip: 'covenant', label: 'Covenant failures' },
@@ -262,7 +267,19 @@ export default function Dashboard({ org }: { org: Org }) {
     { chip: 'spread', label: 'Spreads awaiting review' },
     { chip: 'review', label: 'Annual reviews' },
   ]
-  const dismiss = (it: Item) => setItems(prev => (prev ? prev.filter(x => x !== it) : prev))
+  // Checking a task off persists: it stays done for everyone until Undone.
+  const dismiss = async (it: Item) => {
+    const key = keyOf(it)
+    setDoneKeys(prev => new Set(prev).add(key))
+    await supabase.from('task_state').upsert({ org_id: org.id, key, state: 'done' })
+  }
+  const undo = async (it: Item) => {
+    const key = keyOf(it)
+    setDoneKeys(prev => { const n = new Set(prev); n.delete(key); return n })
+    await supabase.from('task_state').delete().eq('org_id', org.id).eq('key', key)
+  }
+  const openItems = items?.filter(it => !doneKeys.has(keyOf(it))) ?? null
+  const doneItems = items?.filter(it => doneKeys.has(keyOf(it))) ?? []
 
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'
 
@@ -273,9 +290,9 @@ export default function Dashboard({ org }: { org: Org }) {
         <h1 className="hm-h1">
           {greeting}
           <span className="small">
-            {items === null ? 'pulling your book together…'
-              : items.length === 0 ? 'nothing needs you — the book is clean'
-              : `${items.length} task${items.length > 1 ? 's' : ''} need a human`}
+            {openItems === null ? 'pulling your book together…'
+              : openItems.length === 0 ? 'nothing needs you — the book is clean'
+              : `${openItems.length} task${openItems.length > 1 ? 's' : ''} need a human`}
           </span>
         </h1>
 
@@ -291,25 +308,32 @@ export default function Dashboard({ org }: { org: Org }) {
           <b>Tasks</b>
           <span className="small">what needs a human — the agents queued these</span>
           <span className="spacer" />
+          {doneItems.length > 0 && (
+            <button className="linkish" onClick={() => setShowDone(d => !d)}>{showDone ? 'Hide done' : `Show done (${doneItems.length})`}</button>
+          )}
           <a className="btn-dark" href="#/app/screener" style={{ textDecoration: 'none' }}>Screen a package <Ico.chevron /></a>
         </div>
-        {items === null ? <Skeleton rows={5} /> : items.length === 0 ? (
+        {openItems === null ? <Skeleton rows={5} /> : openItems.length === 0 && !showDone ? (
           <p className="small" style={{ padding: '14px 2px' }}><Ico.check /> All clear. Payments current, covenants passing, reporting up to date.</p>
         ) : (
           GROUPS.map(gr => {
-            const group = items.filter(it => it.chip === gr.chip)
+            const group = (showDone ? items! : openItems).filter(it => it.chip === gr.chip)
             if (!group.length) return null
             return (
               <div key={gr.chip}>
                 <div className="task-group">{gr.label}</div>
-                {group.map((it, i) => (
-                  <div className="task-row" key={i}>
-                    <button className="task-check" aria-label="Mark handled" onClick={() => dismiss(it)} />
-                    <span className="t"><a href={it.href}>{it.text.split(' — ')[0]}</a>{it.text.includes(' — ') ? ` — ${it.text.split(' — ').slice(1).join(' — ')}` : ''}{it.who && <span className="small"> · {it.who}</span>}</span>
-                    <span className="task-tag" style={{ background: TAGS[it.chip]?.bg, color: TAGS[it.chip]?.fg }}>{it.chip}</span>
-                    <span className="task-when"><Ico.clock /> {it.when ? fmtDay(it.when) : it.sev === 0 ? 'now' : it.sev === 1 ? 'this week' : 'when free'}</span>
-                  </div>
-                ))}
+                {group.map((it, i) => {
+                  const isDone = doneKeys.has(keyOf(it))
+                  return (
+                    <div className="task-row" key={i} style={isDone ? { opacity: 0.45 } : undefined}>
+                      <button className={`task-check${isDone ? ' done' : ''}`} aria-label={isDone ? 'Undo' : 'Mark handled'}
+                        onClick={() => (isDone ? undo(it) : dismiss(it))}>{isDone ? '✓' : ''}</button>
+                      <span className="t"><a href={it.href}>{it.text.split(' — ')[0]}</a>{it.text.includes(' — ') ? ` — ${it.text.split(' — ').slice(1).join(' — ')}` : ''}{it.who && <span className="small"> · {it.who}</span>}</span>
+                      <span className="task-tag" style={{ background: TAGS[it.chip]?.bg, color: TAGS[it.chip]?.fg }}>{it.chip}</span>
+                      <span className="task-when"><Ico.clock /> {it.when ? fmtDay(it.when) : it.sev === 0 ? 'now' : it.sev === 1 ? 'this week' : 'when free'}</span>
+                    </div>
+                  )
+                })}
               </div>
             )
           })

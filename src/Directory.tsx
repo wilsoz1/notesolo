@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase, Org, DbLoan, Guarantor, Deposit, money, daysLate } from './supabase'
 import { fmtDate } from './Loans'
 import { Skeleton } from './dialogs'
+import { exportCsv } from './csv'
 
 type Cust = { id: string; name: string | null; company: string | null; email: string | null; phone: string | null }
 
@@ -45,7 +46,10 @@ export function Businesses({ org }: { org: Org }) {
   return (
     <>
       <h1>Businesses</h1>
-      <p className="subtitle">{rows.length} borrower relationship{rows.length === 1 ? '' : 's'} · {money(rows.reduce((s, r) => s + r.committed, 0))} committed · open one for contact, guarantors, cash flow and documents.</p>
+      <p className="subtitle">{rows.length} borrower relationship{rows.length === 1 ? '' : 's'} · {money(rows.reduce((s, r) => s + r.committed, 0))} committed · open one for contact, guarantors, cash flow and documents.
+        {' '}<button className="linkish" onClick={() => exportCsv(`businesses-${new Date().toISOString().slice(0, 10)}.csv`,
+          ['Business', 'Contact', 'Email', 'Loans', 'Committed', 'Deposits', 'Guarantors'],
+          rows.map(r => [r.c.company ?? r.c.name ?? '', r.c.name ?? '', r.c.email ?? '', r.loans, r.committed, r.deposits, r.guarantors]))}>Export CSV</button></p>
       <div className="grid">
         <table>
           <thead><tr><th>Business</th><th>Contact</th><th className="num">Loans</th><th className="num">Committed</th><th className="num">Deposits</th><th className="num">Guarantors</th></tr></thead>
@@ -92,7 +96,10 @@ export function Guarantors({ org }: { org: Org }) {
   return (
     <>
       <h1>Guarantors</h1>
-      <p className="subtitle">{list.length} guarantor{list.length === 1 ? '' : 's'} across the book{stale ? ` · ${stale} with a PFS over a year old` : ' · PFS files current'}.</p>
+      <p className="subtitle">{list.length} guarantor{list.length === 1 ? '' : 's'} across the book{stale ? ` · ${stale} with a PFS over a year old` : ' · PFS files current'}.
+        {' '}<button className="linkish" onClick={() => exportCsv(`guarantors-${new Date().toISOString().slice(0, 10)}.csv`,
+          ['Name', 'Guarantees', 'Latest PFS', 'Net worth', 'Liquidity'],
+          list.map(({ g, loans }) => [g.name, loans.map(l => l.loan_number).join(' / '), g.pfs_date ?? '', g.net_worth ?? '', g.liquidity ?? '']))}>Export CSV</button></p>
       <div className="grid">
         <table>
           <thead><tr><th>Name</th><th>Guarantees</th><th>Latest PFS</th><th className="num">Net worth</th><th className="num">Liquidity</th></tr></thead>
@@ -133,7 +140,10 @@ export function Deposits({ org }: { org: Org }) {
   return (
     <>
       <h1>Deposits</h1>
-      <p className="subtitle">{rows.length} account{rows.length === 1 ? '' : 's'} · {money(total)} on deposit across lending relationships.</p>
+      <p className="subtitle">{rows.length} account{rows.length === 1 ? '' : 's'} · {money(total)} on deposit across lending relationships.
+        {' '}<button className="linkish" onClick={() => exportCsv(`deposits-${new Date().toISOString().slice(0, 10)}.csv`,
+          ['Account', 'Type', 'Business', 'Opened', 'Balance'],
+          rows.map(d => [d.account_name, d.type, d.customers?.company ?? '', d.opened ?? '', Number(d.balance)]))}>Export CSV</button></p>
       <div className="grid">
         <table>
           <thead><tr><th>Account</th><th>Type</th><th>Business</th><th>Opened</th><th className="num">Balance</th></tr></thead>
