@@ -77,6 +77,7 @@ export default function Loans({ org, pipeline, preset }: { org: Org; pipeline?: 
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'loan', dir: 1 })
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [cursor, setCursor] = useState(-1)
   const popRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -176,6 +177,24 @@ export default function Loans({ org, pipeline, preset }: { org: Org; pipeline?: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loans, payments, reviewMap, covBad, tickMap, modMap, f, sort, today, preset?.group, preset?.slug])
 
+  // Analyst keyboard flow: j/k move, Enter opens, Esc clears.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) return
+      if (e.key === 'j') setCursor(c => Math.min(c + 1, rows.length - 1))
+      else if (e.key === 'k') setCursor(c => Math.max(c - 1, 0))
+      else if (e.key === 'Escape') setCursor(-1)
+      else if (e.key === 'Enter') setCursor(c => { const l = rows[c]; if (l) window.location.hash = `#/app/loans/${l.id}`; return c })
+    }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [rows])
+  useEffect(() => {
+    document.querySelector('tr.kcursor')?.scrollIntoView({ block: 'nearest' })
+  }, [cursor])
+
   const toggleSort = (key: SortKey) =>
     setSort(s => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === 'amount' || key === 'pastdue' ? -1 : 1 }))
 
@@ -260,6 +279,7 @@ export default function Loans({ org, pipeline, preset }: { org: Org; pipeline?: 
             {[...f.pay, ...f.reviews, ...(f.pastDueOnly ? ['Past due'] : []), ...(f.inDraw ? ['In draw period'] : [])].join(' · ')}
           </span>
         )}
+        <span className="small" style={{ color: 'var(--faint)' }}>j/k + Enter</span>
         <span className="spacer" />
         <button className="btn-light" onClick={() => exportCsv(
           `${pipeline ? 'pipeline' : 'portfolio'}-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -291,10 +311,10 @@ export default function Loans({ org, pipeline, preset }: { org: Org; pipeline?: 
             <th></th>
           </tr></thead>
           <tbody>
-            {rows.map(l => {
+            {rows.map((l, ri) => {
               const pd = pastDueOf(payments, l.id)
               return (
-                <tr key={l.id} className="rowlink" onClick={() => (window.location.hash = `#/app/loans/${l.id}`)}>
+                <tr key={l.id} className={`rowlink${ri === cursor ? ' kcursor' : ''}`} onClick={() => (window.location.hash = `#/app/loans/${l.id}`)}>
                   <td className="mono"><a className="cell-link" href={`#/app/loans/${l.id}`}>{l.loan_number}</a></td>
                   <td className="ellipsis" title={l.customers?.company ?? undefined}>
                     {l.customer_id

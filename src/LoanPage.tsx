@@ -3,7 +3,7 @@ import { supabase, DbLoan, Doc, Org, ShareLink, Attempt, Payment, DbCovenant, Db
 import { CashFlowPanel } from './CashFlow'
 import { fmtDate } from './Loans'
 import { classifyType } from './Documents'
-import { API_URL, aiSpread, aiProcessDocument } from './api'
+import { API_URL, aiSpread, aiProcessDocument, aiObligations } from './api'
 import { confirmDialog, promptDialog, toast, currentUserName, Skeleton } from './dialogs'
 import { DraftButton } from './Ai'
 import { ModifyButton } from './Modify'
@@ -78,6 +78,18 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
   const [deposits, setDeposits] = useState<Deposit[]>([])
   const [lines, setLines] = useState<CreditLine[]>([])
   const [loading, setLoading] = useState(true)
+  // Click a cite -> see the page. Chrome renders #page=N natively in the iframe.
+  const [src, setSrc] = useState<{ url: string; name: string; page: number } | null>(null)
+  const openSource = async (documentId: string | null, page: number | null | undefined, line: string) => {
+    if (!documentId) { toast('No source document attached to this spread'); return }
+    const d = docs.find(x => x.id === documentId)
+    if (!d) { toast('Source document not found on this loan'); return }
+    const path = (d as Doc & { storage_path?: string }).storage_path
+    if (!path) { toast('Source file is not in storage'); return }
+    const { data } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+    if (!data?.signedUrl) { toast('Could not open the source file'); return }
+    setSrc({ url: `${data.signedUrl}#page=${page ?? 1}`, name: `${d.filename} — ${line}`, page: page ?? 1 })
+  }
   const [sel, setSel] = useState<Tab>(LOAN_NAV.some(n => n.key === initialTab) ? initialTab! : 'Overview')
   // Deep links (`…/loans/<id>/Payments`) select that section.
   const setTab = (t: Tab) => {
@@ -232,6 +244,10 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
         </div>
       )}
 
+      {loan.stage !== 'Servicing' && (
+        <PipelineCard loan={loan} spreads={spreads} covenants={covenants} guarantors={guarantors} docs={docs} onChange={load} />
+      )}
+
       <div className="loan-layout">
         <nav className="loan-nav" aria-label="Loan sections">
           {LOAN_NAV.map(n => {
@@ -258,25 +274,103 @@ export default function LoanPage({ org, loanId, initialTab }: { org: Org; loanId
           {sel === 'Borrower' && <BorrowerTab org={org} loan={loan} relLoans={relLoans} relGuarantors={relGuarantors} deposits={deposits} lines={lines} />}
           {sel === 'Payments' && <PaymentsTab loan={loan} payments={payments} onChange={load} />}
           {sel === 'Spreads' && <>
-            <SpreadsTab loan={loan} spreads={spreads} onChange={load} />
+            <SpreadsTab loan={loan} spreads={spreads} onChange={load} openSource={openSource} />
             {loan.customer_id && (
               <CashFlowPanel org={org} customerId={loan.customer_id} guarantors={relGuarantors} spreads={spreads} loans={relLoans} />
             )}
           </>}
           {sel === 'Compliance' && <>
             <AnnualReviewCard org={org} loan={loan} spreads={spreads} covenants={covenants} covHistory={covHistory} payments={payments} relLoans={relLoans} relGuarantors={relGuarantors} onChange={load} />
-            <ComplianceTab org={org} loanId={loanId} covenants={covenants} ticklers={ticklers} history={covHistory} onChange={load} />
+            <ComplianceTab org={org} loanId={loanId} covenants={covenants} ticklers={ticklers} history={covHistory} docs={docs} onChange={load} />
           </>}
           {sel === 'Structure' && <StructureTab loan={loan} guarantors={guarantors} />}
           {sel === 'Documents' && <DocumentsTab org={org} loan={loan} docs={docs} links={links} onChange={load} />}
           {sel === 'Activity' && <ActivityTab org={org} loan={loan} notes={notes} outreach={outreach} onChange={load} />}
         </div>
       </div>
+
+      {src && (
+        <div className="src-drawer" role="dialog" aria-label="Source page">
+          <div className="src-drawer-h">
+            <b className="ellipsis" title={src.name}>{src.name}</b>
+            <span className="small">p. {src.page}</span>
+            <button className="btn-light" onClick={() => setSrc(null)}>Close</button>
+          </div>
+          <iframe src={src.url} title="Source document page" />
+        </div>
+      )}
     </>
   )
 }
 
-const Card = ({ title, sub, children, right }: { title: string; sub?: string; children: React.ReactNode; right?: React.ReactNode }) => (
+// A pipeline deal moves stage by stage, each gate a computable checklist —
+// advance unlocks when the data says ready (override allowed, with eyes open).
+const STAGE_ORDER = ['Application', 'Screening', 'Underwriting', 'Approval', 'Closing', 'Servicing']
+function PipelineCard({ loan, spreads, covenants, guarantors, docs, onChange }: {
+  loan: DbLoan; spreads: Spread[]; covenants: DbCovenant[]; guarantors: Guarantor[]; docs: Doc[]; onChange: () => void
+}) {
+  const idx = STAGE_ORDER.indexOf(loan.stage)
+  const next = STAGE_ORDER[idx + 1]
+  if (idx === -1 || !next) return null
+  const reqsFor = (target: string): { label: string; ok: boolean }[] => {
+    switch (target) {
+      case 'Underwriting': return [
+        { label: 'Borrower linked', ok: !!loan.customer_id },
+        { label: 'At least one document on file', ok: docs.length > 0 },
+      ]
+      case 'Approval': return [
+        { label: 'Borrower linked', ok: !!loan.customer_id },
+        { label: 'A spread reviewed', ok: spreads.some(sp => sp.status === 'reviewed') },
+        { label: 'At least one document on file', ok: docs.length > 0 },
+      ]
+      case 'Closing': return [
+        { label: 'Covenants defined', ok: covenants.length > 0 },
+        { label: 'Guarantor on file', ok: guarantors.length > 0 },
+        { label: 'A spread reviewed', ok: spreads.some(sp => sp.status === 'reviewed') },
+      ]
+      default: return [
+        { label: 'Payment schedule set', ok: !!loan.next_payment_date && !!loan.next_payment_amount },
+        { label: 'Maturity set', ok: !!loan.maturity },
+        { label: 'Origination date set', ok: !!loan.origination_date },
+      ]
+    }
+  }
+  const reqs = reqsFor(next)
+  const ready = reqs.every(r => r.ok)
+  const advance = async () => {
+    if (!ready && !(await confirmDialog(`Advance to ${next} anyway?`, `${reqs.filter(r => !r.ok).length} requirement(s) unmet — they'll still be waiting there.`, { confirmText: 'Advance anyway' }))) return
+    await supabase.from('loans').update({ stage: next }).eq('id', loan.id)
+    toast(next === 'Servicing' ? `${loan.loan_number} booked — it now lives in the portfolio` : `${loan.loan_number} advanced to ${next}`)
+    onChange()
+  }
+  return (
+    <div className="grid" style={{ margin: '14px 0 2px' }}>
+      <div className="uw-head">
+        <span><b>Pipeline</b> <span className="small">deal in flight — each stage gate is a checklist, computed from the file</span></span>
+        <button className={ready ? 'btn-dark' : 'btn-light'} onClick={advance}>
+          {next === 'Servicing' ? 'Book the loan' : `Advance to ${next}`}{!ready && ' (requirements unmet)'}
+        </button>
+      </div>
+      <div style={{ padding: '10px 16px 14px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className="stage-track">
+          {STAGE_ORDER.map((st, i) => (
+            <span key={st} className={`stage-dot ${i < idx ? 'done' : i === idx ? 'on' : ''}`}>{st === 'Servicing' ? 'Booked' : st}</span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {reqs.map(r => (
+            <span key={r.label} className="small" style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+              <span style={{ color: r.ok ? 'var(--green)' : 'var(--amber)', fontWeight: 700 }}>{r.ok ? '\u2713' : '\u2717'}</span>
+              {r.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const Card = ({ title, sub, children, right }:  { title: string; sub?: string; children: React.ReactNode; right?: React.ReactNode }) => (
   <div className="grid" style={{ marginBottom: 20 }}>
     <div className="uw-head"><span><b>{title}</b> {sub && <span className="small">{sub}</span>}</span>{right}</div>
     {children}
@@ -443,7 +537,7 @@ function PaymentsTab({ loan, payments, onChange }: { loan: DbLoan; payments: Pay
 }
 
 // ——— Spreads: borrower financials, one column per period, populated from uploaded statements ———
-function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread[]; onChange: () => void }) {
+function SpreadsTab({ loan, spreads, onChange, openSource }: { loan: DbLoan; spreads: Spread[]; onChange: () => void; openSource: (docId: string | null, page: number | null | undefined, line: string) => void }) {
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [extracting, setExtracting] = useState<string | null>(null)
@@ -459,6 +553,20 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
   const startEdit = (s: Spread) => {
     setEditing(s.id)
     setDraft(Object.fromEntries(SPREAD_LINES.map(([k]) => [k, s.data[k] == null ? '' : String(s.data[k])])))
+  }
+  // Paste a column straight from Excel: multi-line clipboard fills downward.
+  const pasteFill = (k: string) => (e: React.ClipboardEvent) => {
+    const vals = e.clipboardData.getData('text').split(/\r?\n/).map(v => v.replace(/[$,()\s]/g, '')).filter(v => v !== '')
+    if (vals.length < 2) return
+    e.preventDefault()
+    const start = SPREAD_LINES.findIndex(([key]) => key === k)
+    const nd = { ...draft }
+    vals.forEach((v, i) => {
+      const key = SPREAD_LINES[start + i]?.[0]
+      if (key !== undefined) nd[key] = Number.isFinite(+v) ? String(+v) : ''
+    })
+    setDraft(nd)
+    toast(`Pasted ${Math.min(vals.length, SPREAD_LINES.length - start)} values — check and save`)
   }
   const save = async (s: Spread, markReviewed: boolean) => {
     const data = Object.fromEntries(SPREAD_LINES.map(([k]) => [k, draft[k] === '' ? null : +draft[k]]))
@@ -491,7 +599,7 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
   )
 
   return (
-    <Card title="Financial spreads" sub="one column per statement — drafts are created automatically when tax returns or financials are uploaded">
+    <Card title="Financial spreads" sub="one column per statement · cited values open their source page · in edit, paste a column from Excel and it fills downward">
       <table className="spread-tight">
         <thead>
           <tr>
@@ -513,8 +621,14 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
               {spreads.map(s => (
                 <td key={s.id} className="num mono">
                   {editing === s.id
-                    ? <input className="cell-input" type="number" aria-label={`${label} — ${s.period}`} value={draft[k]} onChange={e => setDraft({ ...draft, [k]: e.target.value })} />
-                    : fmt(s.data[k] ?? null)}
+                    ? <input className="cell-input" type="number" aria-label={`${label} — ${s.period}`} value={draft[k]} onChange={e => setDraft({ ...draft, [k]: e.target.value })} onPaste={pasteFill(k)} />
+                    : s.cites?.[k] && s.data[k] != null
+                      ? <button className="cellv linkish" style={{ font: 'inherit', color: 'inherit' }}
+                          onClick={() => openSource(s.source_document_id, s.cites![k].page, `${label} · ${s.period}`)}>
+                          {fmt(s.data[k] ?? null)}
+                          <span className="tip">p. {s.cites[k].page ?? '—'}{s.cites[k].text ? ` · read \u201c${s.cites[k].text}\u201d` : ''} · click to view the page</span>
+                        </button>
+                      : fmt(s.data[k] ?? null)}
                 </td>
               ))}
               <td />
@@ -556,8 +670,9 @@ function SpreadsTab({ loan, spreads, onChange }: { loan: DbLoan; spreads: Spread
 }
 
 // ——— Compliance: covenants + ticklers + the immutable test trail ———
-const ComplianceTab = ({ org, loanId, covenants, ticklers, history, onChange }: { org: Org; loanId: string; covenants: DbCovenant[]; ticklers: DbTickler[]; history: CovTest[]; onChange: () => void }) => (
+const ComplianceTab = ({ org, loanId, covenants, ticklers, history, docs, onChange }: { org: Org; loanId: string; covenants: DbCovenant[]; ticklers: DbTickler[]; history: CovTest[]; docs: Doc[]; onChange: () => void }) => (
   <>
+    {API_URL && docs.length > 0 && <ObligationReader docs={docs} onChange={onChange} />}
     <Card title="Covenants" sub={`${covenants.length} tracked`}>
       <table>
         <thead><tr><th>Covenant</th><th>Requirement</th><th>Actual</th><th>Status</th><th>Next test</th></tr></thead>
@@ -640,6 +755,31 @@ const ComplianceTab = ({ org, loanId, covenants, ticklers, history, onChange }: 
     </Card>
   </>
 )
+
+// ——— Covenant builder: the loan agreement writes its own compliance setup ———
+function ObligationReader({ docs, onChange }: { docs: Doc[]; onChange: () => void }) {
+  const agreements = docs.filter(d => /agreement|loan doc|note|modification/i.test(d.doc_type) || /agreement|loan.?doc/i.test(d.filename))
+  const pool = agreements.length ? agreements : docs
+  const [docId, setDocId] = useState(pool[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="viewbar" style={{ marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
+      <span className="small"><b>Set up compliance from the documents:</b> the model reads the agreement and files every covenant and tickler with its \u00a7-cite.</span>
+      <span className="spacer" />
+      <select className="mini" value={docId} onChange={e => setDocId(e.target.value)} aria-label="Document to read">
+        {pool.map(d => <option key={d.id} value={d.id}>{d.filename}</option>)}
+      </select>
+      <button className="btn-dark" disabled={busy || !docId} onClick={async () => {
+        setBusy(true)
+        const out = await aiObligations(docId)
+        setBusy(false)
+        if (!out) { toast('Could not read the document — is the gateway running?'); return }
+        toast(`Added ${out.ticklers_created} tickler${out.ticklers_created === 1 ? '' : 's'} and ${out.covenants_created} covenant${out.covenants_created === 1 ? '' : 's'} — every item cites its section. Review below; waive anything wrong.`)
+        onChange()
+      }}>{busy ? 'Reading\u2026' : 'Read with AI'}</button>
+    </div>
+  )
+}
 
 // ——— Structure: full terms (top rows first) + guarantors ———
 function StructureTab({ loan, guarantors }: { loan: DbLoan; guarantors: Guarantor[] }) {

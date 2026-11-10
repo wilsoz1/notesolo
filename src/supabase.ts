@@ -31,9 +31,10 @@ export type Guarantor = { id: string; name: string; guarantee_pct: number | null
 export type Note = { id: string; body: string; author: string | null; created_at: string }
 export type Rule = { id: string; days_past_due: number; channel: 'email' | 'sms' | 'both'; subject: string | null; body: string; enabled: boolean }
 
+export type SpreadCite = { page?: number | null; text?: string | null }
 export type Spread = {
   id: string; customer_id: string; period: string; statement_type: string
-  status: 'draft' | 'reviewed'; data: Record<string, number | null>; source_document_id: string | null
+  status: 'draft' | 'reviewed'; data: Record<string, number | null>; cites?: Record<string, SpreadCite>; source_document_id: string | null
 }
 export const SPREAD_LINES: [string, string][] = [
   ['revenue', 'Revenue'], ['cogs', 'Cost of goods sold'], ['opex', 'Operating expenses'],

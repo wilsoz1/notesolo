@@ -330,15 +330,23 @@ function PackageActions({ docs, org, policy }: { docs: DealSheet[]; org: Org | n
         // Business financials become a draft spread on the new borrower.
         if (biz && cust) {
           const line = (k: string) => g(k)?.number ?? null
+          // Provenance follows the money: the screener's page cites ride along
+          // into the book, so the loan's spread stays verifiable.
+          const SPREAD_MAP: [string, string][] = [
+            ['revenue', 'revenue'], ['cogs', 'cogs'], ['opex', 'operating_expenses'], ['ebitda', 'ebitda'],
+            ['depreciation', 'depreciation'], ['interest_expense', 'interest_expense'], ['net_income', 'net_income'],
+            ['distributions', 'distributions'], ['total_debt', 'total_debt'], ['tangible_net_worth', 'tangible_net_worth'],
+          ]
+          const cites: Record<string, { page: number | null; text: string | null }> = {}
+          for (const [sk, fk] of SPREAD_MAP) {
+            const f = g(fk)
+            if (f && f.number != null && f.page != null) cites[sk] = { page: f.page, text: f.text }
+          }
           await supabase.from('financial_spreads').insert({
             org_id: org.id, customer_id: cust.id,
             period: g('period_latest')?.text ?? 'Latest FY', statement_type: 'Tax Return', status: 'draft',
-            data: {
-              revenue: line('revenue'), cogs: line('cogs'), opex: line('operating_expenses'),
-              ebitda: line('ebitda'), depreciation: line('depreciation'), interest_expense: line('interest_expense'),
-              net_income: line('net_income'), distributions: line('distributions'),
-              total_debt: line('total_debt'), tangible_net_worth: line('tangible_net_worth'),
-            },
+            data: Object.fromEntries(SPREAD_MAP.map(([sk, fk]) => [sk, line(fk)])),
+            cites,
           })
         }
         toast(biz ? 'Added to the pipeline — financials spread onto the borrower as a draft' : 'Added to the pipeline')

@@ -357,9 +357,16 @@ Total shareholder equity (tangible): $1,410,000
 def num_or_null() -> Dict[str, Any]:
     return {"type": ["number", "null"]}
 
+def _spread_line():
+    return {"type": "object", "additionalProperties": False,
+            "properties": {"value": num_or_null(), "page": {"type": ["integer", "null"]},
+                           "text": {"type": ["string", "null"]}},
+            "required": ["value", "page", "text"]}
+
+
 SPREAD_SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "properties": {**{k: num_or_null() for k in SPREAD_LINES},
+    "properties": {**{k: _spread_line() for k in SPREAD_LINES},
                    "period": {"type": "string"},
                    "confidence": {"type": "number"}},
     "required": SPREAD_LINES + ["period", "confidence"],
@@ -445,32 +452,38 @@ def make_spread(req: DocReq, orgs: List[str] = Depends(caller_orgs)):
     text = ocr(download_storage(doc["storage_path"]), doc["filename"])
     out = llm_json(
         "You are a bank credit analyst spreading a borrower financial statement or tax return. "
-        "Extract annual figures in dollars (plain numbers). ebitda = operating income + depreciation "
-        "if not stated. Tax returns often show only a combined 'total deductions' line: then "
-        "opex = total deductions - depreciation - interest expense, and "
-        "ebitda = revenue - cogs - opex. Use null only for values that are neither stated nor "
-        "derivable. period like 'FY 2026' or 'T-12 Jun 2026'. confidence 0-1 for the overall extraction.",
+        "For every line return value (dollars, plain number), the PAGE it appears on (pages are "
+        "marked '=== PAGE n ==='), and the text as written in the document. ebitda = operating "
+        "income + depreciation if not stated (then page/text null). Tax returns often show only a "
+        "combined 'total deductions' line: then opex = total deductions - depreciation - interest "
+        "expense, and ebitda = revenue - cogs - opex. Use null values only when neither stated nor "
+        "derivable. period like 'FY 2026' or 'T-12 Jun 2026'. confidence 0-1 overall.",
         f"<document>\n{text}\n</document>",
         SPREAD_SCHEMA,
-        mock={"revenue": 6050000, "cogs": 3960000, "opex": 1310000, "ebitda": 780000, "depreciation": 238000,
-              "interest_expense": 131000, "net_income": 411000, "distributions": 170000,
-              "total_debt": 2240000, "tangible_net_worth": 1410000, "period": "FY 2026", "confidence": 0.92},
+        mock={**{k: {"value": v, "page": 1, "text": f"{v:,}"} for k, v in {
+                  "revenue": 6050000, "cogs": 3960000, "opex": 1310000, "ebitda": 780000,
+                  "depreciation": 238000, "interest_expense": 131000, "net_income": 411000,
+                  "distributions": 170000, "total_debt": 2240000, "tangible_net_worth": 1410000}.items()},
+              "period": "FY 2026", "confidence": 0.92},
     )
     # Deterministic cross-checks beat model self-confidence: penalize when arithmetic doesn't tie.
     conf = float(out.get("confidence") or 0.5)
-    r, c, o, e = out.get("revenue"), out.get("cogs"), out.get("opex"), out.get("ebitda")
+    line = {k: (out.get(k) or {}) for k in SPREAD_LINES}
+    r, c, o, e = line["revenue"].get("value"), line["cogs"].get("value"), line["opex"].get("value"), line["ebitda"].get("value")
     if None not in (r, c, o, e) and abs((r - c - o) - e) > 0.1 * max(abs(e), 1):
         conf = min(conf, 0.6)
-    data = {k: out.get(k) for k in SPREAD_LINES}
+    data = {k: line[k].get("value") for k in SPREAD_LINES}
+    cites = {k: {"page": line[k].get("page"), "text": line[k].get("text")}
+             for k in SPREAD_LINES if line[k].get("value") is not None and line[k].get("page") is not None}
 
     existing = sb("financial_spreads", params={"source_document_id": f"eq.{doc['id']}", "select": "id"})
     if existing:
-        sb(f"financial_spreads?id=eq.{existing[0]['id']}", "PATCH", {"data": data, "period": out["period"]})
+        sb(f"financial_spreads?id=eq.{existing[0]['id']}", "PATCH", {"data": data, "cites": cites, "period": out["period"]})
         spread_id = existing[0]["id"]
     else:
         row = sb("financial_spreads", "POST", {
             "org_id": doc["org_id"], "customer_id": doc["customer_id"], "source_document_id": doc["id"],
-            "period": out["period"], "statement_type": doc["doc_type"], "status": "draft", "data": data})
+            "period": out["period"], "statement_type": doc["doc_type"], "status": "draft", "data": data, "cites": cites})
         spread_id = row[0]["id"]
     return {"spread_id": spread_id, "period": out["period"], "data": data, "confidence": conf}
 
